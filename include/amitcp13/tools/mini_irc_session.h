@@ -19,7 +19,6 @@ struct MiniIrcSession
     int line_len;
     int line_discarding;
     int verbose;
-    int console_output;
     int registered;
     int join_sent;
     int join_confirmed;
@@ -54,8 +53,6 @@ void mini_irc_session_init(struct MiniIrcSession *session,
 void mini_irc_session_set_debug(struct MiniIrcSession *session,
                                 MiniIrcDebugFn debug_fn,
                                 void *debug_ctx);
-void mini_irc_session_set_console_output(struct MiniIrcSession *session,
-                                         int enabled);
 
 int mini_irc_session_set_channel(struct MiniIrcSession *session,
                                  const char *channel);

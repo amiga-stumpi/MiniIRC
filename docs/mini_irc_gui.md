@@ -1,6 +1,6 @@
 # MiniIRC GUI
 
-`MiniIRC` is now a standalone Intuition IRC client for AmigaOS 1.3. It
+`MiniIRC` is a standalone GUI-only Intuition IRC client for AmigaOS 1.3. It
 uses `bsdsocket.library` directly and keeps the networking path independent of
 TheWire13 internals.
 
@@ -12,7 +12,8 @@ Run:
 MiniIRC
 ```
 
-Use `stack 16000` while testing. Open `Project -> Connect` to enter the IRC
+MiniIRC opens its own screen and does not provide a Shell/CLI mode. Use
+`stack 16000` while testing. Open `Project -> Connect` to enter the IRC
 server, port, and nick.
 
 ## Address Book

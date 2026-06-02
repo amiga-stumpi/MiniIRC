@@ -1,6 +1,6 @@
 # MiniIRC
 
-MiniIRC is an experimental AmigaOS 1.3 IRC client for 68000 systems. It opens
+MiniIRC is an experimental GUI-only AmigaOS 1.3 IRC client for 68000 systems. It opens
 its own black-background Intuition screen, uses a KVIrc-style layout, and talks
 to the network through `bsdsocket.library`.
 
@@ -39,13 +39,7 @@ Copy it to the Amiga, for example:
 copy build/MiniIRC C:
 ```
 
-An optional legacy Shell client can be built with:
-
-```sh
-make mini_irc_cli
-```
-
-It produces `build/mini_irc_cli`.
+MiniIRC no longer includes a Shell/CLI client; the project is GUI-only.
 
 ## Usage
 
