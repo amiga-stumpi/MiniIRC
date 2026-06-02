@@ -402,6 +402,56 @@ static int append_text(char *dst, int *pos, int max_len, const char *src)
     return 1;
 }
 
+static int append_char(char *dst, int *pos, int max_len, char c)
+{
+    if (*pos >= max_len - 1)
+        return 0;
+    dst[*pos] = c;
+    ++(*pos);
+    dst[*pos] = 0;
+    return 1;
+}
+
+static int append_two_digits(char *dst, int *pos, int max_len, int value)
+{
+    if (value < 0)
+        value = 0;
+    if (value > 99)
+        value = value % 100;
+    return append_char(dst, pos, max_len, (char)('0' + (value / 10))) &&
+           append_char(dst, pos, max_len, (char)('0' + (value % 10)));
+}
+
+static int append_time_prefix(char *dst, int *pos, int max_len)
+{
+    struct DateStamp ds;
+    LONG minutes;
+    int hour;
+    int minute;
+
+    DateStamp(&ds);
+    minutes = ds.ds_Minute;
+    if (minutes < 0)
+        minutes = 0;
+    minutes %= 1440;
+    hour = (int)(minutes / 60);
+    minute = (int)(minutes % 60);
+
+    return append_char(dst, pos, max_len, '[') &&
+           append_two_digits(dst, pos, max_len, hour) &&
+           append_char(dst, pos, max_len, ':') &&
+           append_two_digits(dst, pos, max_len, minute) &&
+           append_text(dst, pos, max_len, "] ");
+}
+
+static int append_chat_prefix(char *dst, int *pos, int max_len, const char *nick)
+{
+    return append_time_prefix(dst, pos, max_len) &&
+           append_text(dst, pos, max_len, "<") &&
+           append_text(dst, pos, max_len, nick ? nick : "") &&
+           append_text(dst, pos, max_len, "> ");
+}
+
 static int text_equal_ci(const char *a, const char *b)
 {
     char ca;
@@ -1744,9 +1794,7 @@ static void route_line_to_tab(const char *line)
         if (*payload == ':')
             ++payload;
         pos = 0;
-        append_text(out, &pos, sizeof(out), "<");
-        append_text(out, &pos, sizeof(out), nick);
-        append_text(out, &pos, sizeof(out), "> ");
+        append_chat_prefix(out, &pos, sizeof(out), nick);
         append_text(out, &pos, sizeof(out), payload);
         if (chan[0] == '#') {
             idx = tab_find(chan);
@@ -2005,9 +2053,7 @@ static void send_message(void)
         status_text("Send failed");
         return;
     }
-    append_text(g_send_buf, &pos, sizeof(g_send_buf), "<");
-    append_text(g_send_buf, &pos, sizeof(g_send_buf), g_nick_buf);
-    append_text(g_send_buf, &pos, sizeof(g_send_buf), "> ");
+    append_chat_prefix(g_send_buf, &pos, sizeof(g_send_buf), g_nick_buf);
     append_text(g_send_buf, &pos, sizeof(g_send_buf), local);
     tab_append(g_active_tab, g_send_buf);
     clear_message_input();
