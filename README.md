@@ -62,9 +62,10 @@ Use `Settings -> Background...` to choose the screen background color. The
 selection is saved to `mini_irc.conf` in the startup/current directory.
 
 Use `Settings -> Font...` to select a runtime font from the local `fonts`
-directory or `FONTS:` and choose the text color. On startup MiniIRC checks
-`fonts/IBM.font/8` and `fonts/ibm.font/8` in the program directory before using
-`FONTS:`. It then tries `IBM.font/8`, `ibm.font/8`, `ruby.font/8`, and
+directory or `FONTS:` and choose the text color. On startup MiniIRC checks local `fonts/IBM.font/8` and `fonts/ibm.font/8`
+first. It also accepts the normal Amiga bitmap font layout with
+`fonts/IBM.font` plus `fonts/IBM/8`, or `fonts/ibm.font` plus `fonts/ibm/8`,
+before using `FONTS:`. It then tries `IBM.font/8`, `ibm.font/8`, `ruby.font/8`, and
 `topaz.font/11` before falling back to the screen font. A small 8-pixel font is
 recommended for the IRC lists and output. MiniIRC chooses 2, 3, or 4 bitplanes
 based on available Chip RAM, preferring 4 bitplanes when enough memory is

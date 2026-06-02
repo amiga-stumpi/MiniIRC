@@ -715,12 +715,54 @@ static void number_to_text(UWORD value, char *dst, int dst_size)
     dst[i] = 0;
 }
 
+
+static int local_font_size_path_exists(const char *path)
+{
+    BPTR lock;
+
+    lock = Lock((STRPTR)path, ACCESS_READ);
+    if (!lock)
+        return 0;
+    UnLock(lock);
+    return 1;
+}
+
+static int local_font_size_available(const char *font_name, UWORD size)
+{
+    char path[96];
+    char num[8];
+    int pos;
+
+    if (!font_name || !font_name_has_path(font_name))
+        return 1;
+    if (!local_font_size_path_exists(font_name))
+        return 0;
+
+    number_to_text(size, num, sizeof(num));
+
+    path[0] = 0;
+    pos = 0;
+    append_text(path, &pos, sizeof(path), font_name);
+    append_text(path, &pos, sizeof(path), "/");
+    append_text(path, &pos, sizeof(path), num);
+    if (local_font_size_path_exists(path))
+        return 1;
+
+    make_font_size_path(font_name, path, sizeof(path));
+    pos = text_len(path);
+    append_text(path, &pos, sizeof(path), "/");
+    append_text(path, &pos, sizeof(path), num);
+    return local_font_size_path_exists(path);
+}
+
 static struct TextFont *open_named_font(const char *name, UWORD size)
 {
     struct TextAttr attr;
     struct TextFont *font;
 
     if (!name || !name[0] || size == 0)
+        return 0;
+    if (!local_font_size_available(name, size))
         return 0;
     attr.ta_Name = (STRPTR)name;
     attr.ta_YSize = size;
