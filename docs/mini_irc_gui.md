@@ -67,7 +67,7 @@ rows and columns.
 Project:
 
 - `Connect`: opens the connect/address-book requester.
-- `Disconnect`: sends `QUIT` and closes the socket.
+- `Disconnect`: sends `QUIT :MiniIRC Kick1.3 v0.5` and closes the socket.
 - `Quit`: exits MiniIRC.
 
 Settings:

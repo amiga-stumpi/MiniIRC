@@ -15,7 +15,9 @@
 #include "amitcp13/bsdsocket.h"
 #include "amitcp13/tools/mini_irc_session.h"
 
-#define MINI_IRC_GUI_TITLE "MiniIRC v0.5 by Marcel Jaehne (c)2026"
+#define MINI_IRC_VERSION "v0.5"
+#define MINI_IRC_GUI_TITLE "MiniIRC " MINI_IRC_VERSION " by Marcel Jaehne (c)2026"
+#define MINI_IRC_QUIT_MESSAGE "QUIT :MiniIRC Kick1.3 " MINI_IRC_VERSION
 #define MINI_IRC_ADDRBOOK_PATH "mini_irc.addr"
 #define MINI_IRC_DEBUG_LOG_PATH "MiniIRC-debug.log"
 
@@ -1310,7 +1312,7 @@ static void disconnect_irc(const char *reason)
     debug_log("DISCONNECT", reason ? reason : "Disconnected");
     part_open_channels();
     if (g_gui.connected)
-        mini_irc_session_send_line(&g_gui.session, "QUIT :bye");
+        mini_irc_session_send_line(&g_gui.session, MINI_IRC_QUIT_MESSAGE);
     if (g_gui.fd >= 0 && g_gui.socket_base)
         call_close_socket(g_gui.socket_base, g_gui.fd);
     g_gui.fd = -1;
