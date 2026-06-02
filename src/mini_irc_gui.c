@@ -15,7 +15,7 @@
 #include "amitcp13/bsdsocket.h"
 #include "amitcp13/tools/mini_irc_session.h"
 
-#define MINI_IRC_GUI_TITLE "MiniIRC v0.3 by Marcel Jaehne (c)2026"
+#define MINI_IRC_GUI_TITLE "MiniIRC v0.4 by Marcel Jaehne (c)2026"
 #define MINI_IRC_ADDRBOOK_PATH "mini_irc.addr"
 #define MINI_IRC_DEBUG_LOG_PATH "MiniIRC-debug.log"
 
@@ -188,6 +188,7 @@ static int text_len(const char *s);
 static void layout_window(void);
 static void redraw_all(void);
 static void update_main_gadget_positions(void);
+static void draw_button_window(struct Window *win, WORD x, WORD y, WORD w, WORD h, const char *label);
 
 static WORD g_list_top;
 static WORD g_list_bottom;
@@ -201,6 +202,10 @@ static WORD g_term_x;
 static WORD g_term_y;
 static WORD g_term_w;
 static WORD g_term_h;
+static WORD g_leave_x;
+static WORD g_leave_y;
+static WORD g_leave_w;
+static WORD g_leave_h;
 
 
 static void debug_write_raw(const char *text)
@@ -889,6 +894,8 @@ static void draw_channel_list(void)
                (WORD)(g_chan_x + g_chan_w - 1), g_list_bottom);
     draw_panel_box(g_chan_x, (WORD)(g_win->BorderTop + 2), g_chan_w,
                    (WORD)(g_list_bottom - g_win->BorderTop - 1), "Channels");
+    g_leave_w = 0;
+    g_leave_h = 0;
     max_chars = (g_chan_w - 8) / g_char_w;
     if (max_chars > MINI_IRC_CHAN_SIZE - 1)
         max_chars = MINI_IRC_CHAN_SIZE - 1;
@@ -896,18 +903,35 @@ static void draw_channel_list(void)
         y = (WORD)(g_list_top + g_baseline + 2 + i * g_char_h);
         if (y > g_list_bottom)
             break;
+        SetAPen(g_win->RPort, 1);
         if (i == g_active_tab) {
-            SetAPen(g_win->RPort, 1);
-            RectFill(g_win->RPort, (WORD)(g_chan_x + 2),
-                     (WORD)(y - g_baseline - 1),
-                     (WORD)(g_chan_x + g_chan_w - 3),
-                     (WORD)(y + 2));
-            SetAPen(g_win->RPort, 0);
+            Move(g_win->RPort, (WORD)(g_chan_x + 2), (WORD)(y - g_baseline - 2));
+            Draw(g_win->RPort, (WORD)(g_chan_x + g_chan_w - 3), (WORD)(y - g_baseline - 2));
+            Draw(g_win->RPort, (WORD)(g_chan_x + g_chan_w - 3), (WORD)(y + 3));
+            Draw(g_win->RPort, (WORD)(g_chan_x + 2), (WORD)(y + 3));
+            Draw(g_win->RPort, (WORD)(g_chan_x + 2), (WORD)(y - g_baseline - 2));
+            draw_text_at((WORD)(g_chan_x + 5), y, ">");
+            if (i > 0) {
+                g_leave_w = 34;
+                g_leave_h = (WORD)(g_char_h + 4);
+                g_leave_x = (WORD)(g_chan_x + g_chan_w - g_leave_w - 4);
+                g_leave_y = (WORD)(y - g_baseline - 3);
+                max_chars = (g_leave_x - g_chan_x - 18) / g_char_w;
+                if (max_chars < 1)
+                    max_chars = 1;
+                if (max_chars > MINI_IRC_CHAN_SIZE - 1)
+                    max_chars = MINI_IRC_CHAN_SIZE - 1;
+                draw_button_window(g_win, g_leave_x, g_leave_y, g_leave_w, g_leave_h, "Leave");
+            }
+            copy_text(tmp, max_chars + 1, g_tabs[i].name);
+            Move(g_win->RPort, (WORD)(g_chan_x + 14), y);
         } else {
-            SetAPen(g_win->RPort, 1);
+            max_chars = (g_chan_w - 8) / g_char_w;
+            if (max_chars > MINI_IRC_CHAN_SIZE - 1)
+                max_chars = MINI_IRC_CHAN_SIZE - 1;
+            copy_text(tmp, max_chars + 1, g_tabs[i].name);
+            Move(g_win->RPort, (WORD)(g_chan_x + 4), y);
         }
-        copy_text(tmp, max_chars + 1, g_tabs[i].name);
-        Move(g_win->RPort, (WORD)(g_chan_x + 4), y);
         Text(g_win->RPort, (STRPTR)tmp, text_len(tmp));
     }
     SetAPen(g_win->RPort, 1);
@@ -949,26 +973,20 @@ static void draw_static_controls(void)
     SetAPen(g_win->RPort, 1);
     Move(g_win->RPort, 4, (WORD)(g_status_y - g_char_h - 5));
     Draw(g_win->RPort, (WORD)(g_win->Width - 5), (WORD)(g_status_y - g_char_h - 5));
-    draw_text_at(8, (WORD)(g_join_gadget.TopEdge + g_baseline + 5), "Room");
+    draw_text_at(8, (WORD)(g_join_gadget.TopEdge + g_baseline + 5), "Channel");
     draw_text_at(8, (WORD)(g_msg_gadget.TopEdge + g_baseline + 5), "Text");
 }
 
-static void draw_button_window(struct Window *win,
-                               WORD x,
-                               WORD y,
-                               WORD w,
-                               WORD h,
-                               const char *label);
 static void draw_field_box(WORD x, WORD y, WORD w, WORD h);
 static void draw_main_buttons(void);
 
 static void draw_main_buttons(void)
 {
     gui_rp();
-    draw_field_box(g_join_gadget.LeftEdge, g_join_gadget.TopEdge,
-                   g_join_gadget.Width, g_join_gadget.Height);
-    draw_field_box(g_msg_gadget.LeftEdge, g_msg_gadget.TopEdge,
-                   g_msg_gadget.Width, g_msg_gadget.Height);
+    draw_field_box((WORD)(g_join_gadget.LeftEdge - 2), (WORD)(g_join_gadget.TopEdge - 3),
+                   (WORD)(g_join_gadget.Width + 4), (WORD)(g_join_gadget.Height + 5));
+    draw_field_box((WORD)(g_msg_gadget.LeftEdge - 2), (WORD)(g_msg_gadget.TopEdge - 3),
+                   (WORD)(g_msg_gadget.Width + 4), (WORD)(g_msg_gadget.Height + 5));
     draw_button_window(g_win, g_join_button.LeftEdge, g_join_button.TopEdge,
                        g_join_button.Width, g_join_button.Height, "Join");
     draw_button_window(g_win, g_send_gadget.LeftEdge, g_send_gadget.TopEdge,
@@ -2376,6 +2394,49 @@ static void update_main_gadget_positions(void)
     }
 }
 
+static void remove_tab(int idx)
+{
+    int i;
+
+    if (idx <= 0 || idx >= g_tab_count)
+        return;
+    for (i = idx; i + 1 < g_tab_count; ++i)
+        g_tabs[i] = g_tabs[i + 1];
+    --g_tab_count;
+    if (g_active_tab >= g_tab_count)
+        g_active_tab = g_tab_count - 1;
+    if (g_active_tab < 0)
+        g_active_tab = 0;
+}
+
+static void leave_active_channel(void)
+{
+    int pos = 0;
+    char channel[MINI_IRC_CHAN_SIZE];
+
+    if (g_active_tab <= 0 || g_active_tab >= g_tab_count) {
+        status_text("Select channel");
+        return;
+    }
+
+    copy_text(channel, sizeof(channel), g_tabs[g_active_tab].name);
+    if (g_gui.connected) {
+        g_send_buf[0] = 0;
+        if (!append_text(g_send_buf, &pos, sizeof(g_send_buf), "PART ") ||
+            !append_text(g_send_buf, &pos, sizeof(g_send_buf), channel) ||
+            !mini_irc_session_send_line(&g_gui.session, g_send_buf)) {
+            status_text("PART failed");
+            return;
+        }
+    }
+
+    remove_tab(g_active_tab);
+    draw_channel_list();
+    draw_user_list();
+    draw_output();
+    status_text("Channel left");
+}
+
 static void handle_menu(UWORD code)
 {
     UWORD menu = MENUNUM(code);
@@ -2399,6 +2460,13 @@ static void handle_menu(UWORD code)
 static void handle_mouse_click(WORD mx, WORD my)
 {
     int row;
+
+    if (g_leave_w > 0 &&
+        mx >= g_leave_x && mx <= g_leave_x + g_leave_w &&
+        my >= g_leave_y && my <= g_leave_y + g_leave_h) {
+        leave_active_channel();
+        return;
+    }
 
     if (mx < g_chan_x || mx > g_chan_x + g_chan_w ||
         my < g_list_top || my > g_list_bottom)

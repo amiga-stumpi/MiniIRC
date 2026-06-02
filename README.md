@@ -7,7 +7,7 @@ to the network through `bsdsocket.library`.
 Version:
 
 ```text
-MiniIRC v0.3 by Marcel Jaehne (c)2026
+MiniIRC v0.4 by Marcel Jaehne (c)2026
 ```
 
 ## Requirements
@@ -60,7 +60,8 @@ recommended for the IRC lists and output. MiniIRC chooses 2, 3, or 4
 bitplanes based on available Chip RAM, preferring 4 bitplanes when enough memory is available.
 
 Joining a channel creates/selects the channel entry. Selecting a channel on the
-left changes the active conversation. The user list is filled from IRC NAMES
+left changes the active conversation. The active channel row shows a Leave
+button for sending PART and closing that tab. The user list is filled from IRC NAMES
 replies and updated for basic JOIN/PART/QUIT events.
 
 ## Address Book
