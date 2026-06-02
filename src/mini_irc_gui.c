@@ -1513,23 +1513,36 @@ static void open_connect_dialog(void)
     cancel_gad.GadgetID = MINI_IRC_CGID_CANCEL;
 
     memset(&nw, 0, sizeof(nw));
-    nw.LeftEdge = 30;
-    nw.TopEdge = 24;
+    if (g_screen) {
+        nw.LeftEdge = (WORD)((g_screen->Width - 312) / 2);
+        nw.TopEdge = (WORD)((g_screen->Height - 248) / 2);
+        if (nw.LeftEdge < 0)
+            nw.LeftEdge = 0;
+        if (nw.TopEdge < 12)
+            nw.TopEdge = 12;
+    } else {
+        nw.LeftEdge = 30;
+        nw.TopEdge = 24;
+    }
     nw.Width = 312;
     nw.Height = 248;
     nw.DetailPen = 1;
     nw.BlockPen = 0;
     nw.IDCMPFlags = IDCMP_CLOSEWINDOW | IDCMP_GADGETUP |
                     IDCMP_MOUSEBUTTONS | IDCMP_REFRESHWINDOW;
-    nw.Flags = WFLG_CLOSEGADGET | WFLG_DRAGBAR |
+    nw.Flags = WFLG_CLOSEGADGET | WFLG_DRAGBAR | WFLG_DEPTHGADGET |
                WFLG_SMART_REFRESH | WFLG_ACTIVATE;
     nw.FirstGadget = &host_gad;
     nw.Title = (STRPTR)"MiniIRC Connect";
     nw.Screen = g_screen;
     nw.Type = CUSTOMSCREEN;
     win = OpenWindow(&nw);
-    if (!win)
+    if (!win) {
+        status_text("Connect window failed");
         return;
+    }
+    WindowToFront(win);
+    ActivateWindow(win);
     if (g_gui_font)
         SetFont(win->RPort, g_gui_font);
     draw_connect_dialog(win, selected);
@@ -1887,8 +1900,10 @@ int main(int argc, char **argv)
                 redraw_all();
             } else if (cls == IDCMP_MENUPICK) {
                 while (code != MENUNULL) {
+                    struct MenuItem *item_ptr = ItemAddress(&g_menus[0], code);
+                    UWORD next_code = item_ptr ? item_ptr->NextSelect : MENUNULL;
                     handle_menu(code);
-                    code = ItemAddress(&g_menus[0], code)->NextSelect;
+                    code = next_code;
                 }
             } else if (cls == IDCMP_MOUSEBUTTONS && code == SELECTDOWN) {
                 handle_mouse_click(g_win->MouseX, g_win->MouseY);
