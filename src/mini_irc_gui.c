@@ -20,6 +20,8 @@
 #define MINI_IRC_QUIT_MESSAGE "QUIT :MiniIRC Kick1.3 " MINI_IRC_VERSION
 #define MINI_IRC_ADDRBOOK_PATH "mini_irc.addr"
 #define MINI_IRC_DEBUG_LOG_PATH "MiniIRC-debug.log"
+#define MINI_IRC_FILE_DEBUG 0
+#define MINI_IRC_QUIT_FLUSH_TICKS 8
 
 #define MINI_IRC_HOST_SIZE 128
 #define MINI_IRC_NICK_SIZE 32
@@ -162,6 +164,7 @@ static int g_rx_len;
 static char g_send_buf[MINI_IRC_SEND_SIZE];
 static struct Amitcp13BsdSockAddrIn g_addr;
 static struct Amitcp13BsdFdSet g_read_fds;
+static struct Amitcp13BsdFdSet g_write_fds;
 static struct Amitcp13BsdTimeVal g_timeout;
 static ULONG g_wait_signals;
 static LONG g_one = 1;
@@ -274,25 +277,36 @@ static void debug_log_num(const char *tag, LONG value)
 
 static void debug_open(void)
 {
+#if MINI_IRC_FILE_DEBUG
     g_debug_fh = Open((STRPTR)MINI_IRC_DEBUG_LOG_PATH, MODE_NEWFILE);
     g_debug_seq = 0;
     debug_log("START", MINI_IRC_GUI_TITLE);
+#else
+    g_debug_fh = 0;
+    g_debug_seq = 0;
+#endif
 }
 
 static void debug_close(void)
 {
+#if MINI_IRC_FILE_DEBUG
     debug_log("STOP", "MiniIRC exit");
     if (g_debug_fh) {
         Close(g_debug_fh);
         g_debug_fh = 0;
     }
+#else
+    g_debug_fh = 0;
+#endif
 }
 
+#if MINI_IRC_FILE_DEBUG
 static void session_debug_cb(void *ctx, const char *tag, const char *text)
 {
     (void)ctx;
     debug_log(tag, text);
 }
+#endif
 
 static int text_len(const char *s)
 {
@@ -1289,11 +1303,31 @@ static void reset_channel_tabs(void)
     g_leave_h = 0;
 }
 
+
+static void flush_quit_before_close(void)
+{
+    int i;
+
+    if (!g_gui.socket_base || g_gui.fd < 0)
+        return;
+    for (i = 0; i < MINI_IRC_QUIT_FLUSH_TICKS; ++i) {
+        AMITCP13_BSD_FD_ZERO(&g_write_fds);
+        AMITCP13_BSD_FD_SET(g_gui.fd, &g_write_fds);
+        g_timeout.tv_sec = 0;
+        g_timeout.tv_usec = 20000;
+        g_wait_signals = 0;
+        call_waitselect(g_gui.socket_base, g_gui.fd + 1, 0, &g_write_fds, &g_timeout);
+        Delay(1);
+    }
+}
+
 static void disconnect_irc(const char *reason)
 {
     debug_log("DISCONNECT", reason ? reason : "Disconnected");
-    if (g_gui.connected)
+    if (g_gui.connected) {
         mini_irc_session_send_line(&g_gui.session, MINI_IRC_QUIT_MESSAGE);
+        flush_quit_before_close();
+    }
     if (g_gui.fd >= 0 && g_gui.socket_base)
         call_close_socket(g_gui.socket_base, g_gui.fd);
     g_gui.fd = -1;
@@ -1358,7 +1392,9 @@ static int connect_irc(void)
     }
 
     mini_irc_session_init(&g_gui.session, irc_socket_send, &g_gui.sock_ctx);
+#if MINI_IRC_FILE_DEBUG
     mini_irc_session_set_debug(&g_gui.session, session_debug_cb, 0);
+#endif
     mini_irc_session_set_nick(&g_gui.session, g_nick_buf);
     g_gui.sock_ctx.base = g_gui.socket_base;
     g_gui.sock_ctx.fd = g_gui.fd;

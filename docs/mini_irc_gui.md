@@ -75,12 +75,10 @@ Settings:
 - `Address Book...`: opens the same compact connect/address-book requester.
 - `Font...`: opens the OS1.3-safe font selector.
 
-## Live Debug Log
+## Debug Log
 
-MiniIRC writes a live debug log to `MiniIRC-debug.log` in the startup/current
-directory. Important GUI, socket, IRC line, PING/PONG, and send events are
-written immediately with DOS `Write()`, so the file remains useful after a
-reset if MiniIRC cannot be closed cleanly.
+The live file debug log is disabled in the default build. It can be re-enabled
+for diagnostics with `MINI_IRC_FILE_DEBUG` in the source.
 
 ## IRC Keepalive
 
