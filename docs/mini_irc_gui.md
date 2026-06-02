@@ -83,4 +83,4 @@ MUI, ReAction, ASL, or OS2+ APIs are required.
 
 ## MiniIRC v0.2 Layout
 
-MiniIRC now opens on its own AmigaOS 1.3 custom screen. The main window uses a KVIrc-style split layout: channels are listed on the left, the active channel output is in the center, the active channel user list is on the right, and the Join/Input fields are fixed at the bottom. Selecting a channel in the left list changes the active view. The user list is populated from IRC NAMES replies and updated on basic JOIN/PART/QUIT events.
+MiniIRC now opens on its own black-background AmigaOS 1.3 custom screen. It chooses 2, 3, or 4 bitplanes using the same available Chip RAM thresholds as MiniTelnet. The main window uses a KVIrc-style split layout: channels are listed on the left, the active channel output is in the center, the active channel user list is on the right, and the Join/Input fields are fixed at the bottom. Selecting a channel in the left list changes the active view. The user list is populated from IRC NAMES replies and updated on basic JOIN/PART/QUIT events.

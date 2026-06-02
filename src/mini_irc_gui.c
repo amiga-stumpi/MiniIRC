@@ -1,5 +1,6 @@
 #include <exec/types.h>
 #include <exec/libraries.h>
+#include <exec/memory.h>
 #include <dos/dos.h>
 #include <intuition/intuition.h>
 #include <graphics/gfx.h>
@@ -33,6 +34,8 @@
 #define MINI_IRC_BOTTOM_H 26
 #define MINI_IRC_DEFAULT_PORT 6667
 #define MINI_IRC_CONNECT_TIMEOUT 15
+#define MINI_IRC_CHIPRAM_100K 102400UL
+#define MINI_IRC_CHIPRAM_256K 262144UL
 #define MINI_IRC_CONNECT_WIN_W 424
 #define MINI_IRC_CONNECT_WIN_H 152
 #define MINI_IRC_CONNECT_LIST_X 12
@@ -123,6 +126,8 @@ static struct TextFont *g_gui_font;
 static UBYTE g_gui_font_opened;
 static char g_font_name[MINI_IRC_FONT_NAME_MAX];
 static UWORD g_font_size;
+static ULONG g_screen_chip_free;
+static UBYTE g_screen_depth;
 static WORD g_char_w = 8;
 static WORD g_char_h = 8;
 static WORD g_baseline = 7;
@@ -2295,6 +2300,39 @@ static void handle_mouse_click(WORD mx, WORD my)
     }
 }
 
+
+static UBYTE choose_screen_depth(void)
+{
+    ULONG chip_free;
+
+    chip_free = AvailMem(MEMF_CHIP);
+    g_screen_chip_free = chip_free;
+    if (chip_free <= MINI_IRC_CHIPRAM_100K)
+        return 2;
+    if (chip_free < MINI_IRC_CHIPRAM_256K)
+        return 3;
+    return 4;
+}
+
+static void apply_screen_palette(void)
+{
+    static const UWORD colors[8] = {
+        0x000, 0xfff, 0xf00, 0x0f0, 0x00f, 0xf0f, 0xff0, 0x0ff
+    };
+    struct ViewPort *vp;
+    UWORD count;
+
+    if (!g_win)
+        return;
+    vp = ViewPortAddress(g_win);
+    if (!vp)
+        return;
+    count = 1U << g_screen_depth;
+    if (count > 8)
+        count = 8;
+    LoadRGB4(vp, colors, count);
+}
+
 static int open_irc_screen(void)
 {
     struct NewScreen ns;
@@ -2305,7 +2343,7 @@ static int open_irc_screen(void)
     ns.TopEdge = 0;
     ns.Width = 640;
     ns.Height = 256;
-    ns.Depth = 2;
+    ns.Depth = choose_screen_depth();
     ns.DetailPen = 1;
     ns.BlockPen = 0;
     ns.ViewModes = HIRES;
@@ -2325,10 +2363,13 @@ static int open_irc_screen(void)
         ns.Width = 320;
     if (ns.Height < 200)
         ns.Height = 200;
-    g_screen = OpenScreen(&ns);
-    if (!g_screen && ns.Depth > 1) {
-        ns.Depth = 1;
+    while (ns.Depth >= 2) {
         g_screen = OpenScreen(&ns);
+        if (g_screen) {
+            g_screen_depth = ns.Depth;
+            break;
+        }
+        --ns.Depth;
     }
     return g_screen != 0;
 }
@@ -2360,6 +2401,7 @@ static int open_main_window(void)
         }
         return 0;
     }
+    apply_screen_palette();
     g_screen_font = g_win->RPort->Font;
     g_gui_font = g_screen_font;
     install_default_font();

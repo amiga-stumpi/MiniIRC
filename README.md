@@ -1,8 +1,8 @@
 # MiniIRC
 
 MiniIRC is an experimental AmigaOS 1.3 IRC client for 68000 systems. It opens
-its own Intuition screen, uses a KVIrc-style layout, and talks to the network
-through `bsdsocket.library`.
+its own black-background Intuition screen, uses a KVIrc-style layout, and talks
+to the network through `bsdsocket.library`.
 
 Version:
 
@@ -62,7 +62,8 @@ The main screen layout is:
 Use `Settings -> Font...` to select a runtime font from `FONTS:`. MiniIRC
 tries `IBM.font/8`, `ibm.font/8`, `ruby.font/8`, and then `topaz.font/11`
 on startup before falling back to the screen font. A small 8-pixel font is
-recommended for the IRC lists and output.
+recommended for the IRC lists and output. MiniIRC chooses 2, 3, or 4
+bitplanes using the same available Chip RAM thresholds as MiniTelnet.
 
 Joining a channel creates/selects the channel entry. Selecting a channel on the
 left changes the active conversation. The user list is filled from IRC NAMES
