@@ -999,9 +999,7 @@ int mini_irc_session_handle_line(struct MiniIrcSession *session,
         print_text("\n");
     }
 
-    if (line[0] == 'P' && line[1] == 'I' &&
-        line[2] == 'N' && line[3] == 'G' &&
-        line[4] == ' ') {
+    if (token_equals_ci(command, command_len, "PING")) {
         if (session->verbose) {
             print_text("PING line: ");
             print_text(line);
@@ -1009,7 +1007,7 @@ int mini_irc_session_handle_line(struct MiniIrcSession *session,
         }
         ++session->ping_command_detected;
         ++session->ping_lines_seen;
-        return mini_irc_session_send_pong(session, line + 5);
+        return mini_irc_session_send_pong(session, payload);
     }
 
     if (token_equals_ci(command, command_len, "001")) {

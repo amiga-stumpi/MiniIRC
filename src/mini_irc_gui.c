@@ -156,7 +156,6 @@ static int g_rx_len;
 static char g_send_buf[MINI_IRC_SEND_SIZE];
 static struct Amitcp13BsdSockAddrIn g_addr;
 static struct Amitcp13BsdFdSet g_read_fds;
-static struct Amitcp13BsdFdSet g_write_fds;
 static struct Amitcp13BsdTimeVal g_timeout;
 static ULONG g_wait_signals;
 static LONG g_one = 1;
@@ -1066,27 +1065,6 @@ static struct hostent *call_gethostbyname(struct Library *base, const char *name
     return d0;
 }
 
-static int wait_for_socket(struct Library *base, int fd, int want_write, LONG seconds)
-{
-    int result;
-
-    AMITCP13_BSD_FD_ZERO(&g_read_fds);
-    AMITCP13_BSD_FD_ZERO(&g_write_fds);
-    if (want_write)
-        AMITCP13_BSD_FD_SET(fd, &g_write_fds);
-    else
-        AMITCP13_BSD_FD_SET(fd, &g_read_fds);
-    g_timeout.tv_sec = seconds;
-    g_timeout.tv_usec = 0;
-    g_wait_signals = 0;
-    result = call_waitselect(base,
-                             fd + 1,
-                             want_write ? 0 : &g_read_fds,
-                             want_write ? &g_write_fds : 0,
-                             &g_timeout);
-    return result > 0;
-}
-
 static int send_all(struct Library *base, int fd, const char *buf, int len)
 {
     int total = 0;
@@ -1100,11 +1078,8 @@ static int send_all(struct Library *base, int fd, const char *buf, int len)
             continue;
         }
         err = call_errno(base);
-        if (err == AMITCP13_EWOULDBLOCK) {
-            if (!wait_for_socket(base, fd, 1, MINI_IRC_CONNECT_TIMEOUT))
-                return 0;
-            continue;
-        }
+        if (err == AMITCP13_EWOULDBLOCK || err == AMITCP13_EAGAIN)
+            return 0;
         return 0;
     }
     return 1;

@@ -69,6 +69,12 @@ Settings:
 - `Address Book...`: opens the same compact connect/address-book requester.
 - `Font...`: opens the OS1.3-safe font selector.
 
+## IRC Keepalive
+
+PING/PONG handling is command-token based and case-insensitive. MiniIRC sends
+`PONG` using the parsed IRC payload and avoids long blocking waits in the GUI
+send path.
+
 ## Event Loop Responsiveness
 
 MiniIRC limits socket receive draining per GUI tick so IRC bursts cannot starve
