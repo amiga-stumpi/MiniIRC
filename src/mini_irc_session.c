@@ -722,9 +722,11 @@ static int send_registered_actions(struct MiniIrcSession *session)
         return 1;
 
     if (!session->join_sent && session->pending_channel[0]) {
-        print_text("joining ");
-        print_text(session->pending_channel);
-        print_text("\n");
+        if (session->console_output) {
+            print_text("joining ");
+            print_text(session->pending_channel);
+            print_text("\n");
+        }
         if (!mini_irc_session_join(session, session->pending_channel))
             return 0;
         session->join_sent = 1;
@@ -753,6 +755,7 @@ void mini_irc_session_init(struct MiniIrcSession *session,
     session->line_len = 0;
     session->line_discarding = 0;
     session->verbose = 0;
+    session->console_output = 1;
     session->registered = 0;
     session->join_sent = 0;
     session->join_confirmed = 0;
@@ -798,6 +801,14 @@ void mini_irc_session_set_debug(struct MiniIrcSession *session,
         return;
     session->debug_fn = debug_fn;
     session->debug_ctx = debug_ctx;
+}
+
+void mini_irc_session_set_console_output(struct MiniIrcSession *session,
+                                         int enabled)
+{
+    if (!session)
+        return;
+    session->console_output = enabled ? 1 : 0;
 }
 
 int mini_irc_session_set_channel(struct MiniIrcSession *session,
@@ -913,7 +924,7 @@ int mini_irc_session_send_pong(struct MiniIrcSession *session,
         session->last_pong_len = pos;
     }
 
-    if (session && session->verbose) {
+    if (session && session->verbose && session->console_output) {
         print_escaped_line("PONG line: ", g_send_buf, pos);
         print_text("PONG len=");
         print_number((LONG)pos);
@@ -925,7 +936,7 @@ int mini_irc_session_send_pong(struct MiniIrcSession *session,
         debug_event(session, "PONG_OK", g_send_buf);
         ++session->pong_send_success;
         ++session->pong_sent;
-        if (session->verbose) {
+        if (session->verbose && session->console_output) {
             print_text("PING -> PONG\n");
             print_text("PONG sent\n");
         }
@@ -979,7 +990,7 @@ int mini_irc_session_privmsg(struct MiniIrcSession *session,
         return 0;
 
     result = mini_irc_session_send_line(session, g_send_buf);
-    if (result && session->verbose)
+    if (result && session->verbose && session->console_output)
         print_text("sent PRIVMSG\n");
 
     return result;
@@ -1004,7 +1015,7 @@ int mini_irc_session_handle_line(struct MiniIrcSession *session,
     contains_ping = text_contains_ci(line, "PING");
     if (contains_ping) {
         ++session->ping_detected_anywhere;
-        if (session->verbose) {
+        if (session->verbose && session->console_output) {
             print_text("contains PING raw line: ");
             print_text(line);
             print_text("\n");
@@ -1019,13 +1030,15 @@ int mini_irc_session_handle_line(struct MiniIrcSession *session,
     if (text_contains_ci(line, "ERROR") ||
         text_contains_ci(line, "Closing Link") ||
         text_contains_ci(line, "Ping timeout")) {
-        print_text("protocol notice: ");
-        print_text(line);
-        print_text("\n");
+        if (session->console_output) {
+            print_text("protocol notice: ");
+            print_text(line);
+            print_text("\n");
+        }
     }
 
     if (token_equals_ci(command, command_len, "PING")) {
-        if (session->verbose) {
+        if (session->verbose && session->console_output) {
             print_text("PING line: ");
             print_text(line);
             print_text("\n");
@@ -1039,7 +1052,8 @@ int mini_irc_session_handle_line(struct MiniIrcSession *session,
     if (token_equals_ci(command, command_len, "001")) {
         if (!session->registered) {
             session->registered = 1;
-            print_text("registered\n");
+            if (session->console_output)
+                print_text("registered\n");
         }
     } else if (token_equals_ci(command, command_len, "376") ||
                token_equals_ci(command, command_len, "422")) {
@@ -1049,16 +1063,21 @@ int mini_irc_session_handle_line(struct MiniIrcSession *session,
         if (!session->registered) {
             if (!make_fallback_nick(session))
                 return 0;
-            print_text("nick in use, trying ");
-            print_text(session->nick);
-            print_text("\n");
+            if (session->console_output) {
+                print_text("nick in use, trying ");
+                print_text(session->nick);
+                print_text("\n");
+            }
             if (!send_nick(session))
                 return 0;
         }
     } else if (token_equals_ci(command, command_len, "451")) {
-        if (!session->registered)
+        if (!session->registered && session->console_output)
             print_text("warning: command before registration rejected\n");
     }
+
+    if (!session->console_output)
+        return 1;
 
     if (token_equals_ci(command, command_len, "PRIVMSG")) {
         print_text("PRIVMSG dispatch\n");
@@ -1110,7 +1129,7 @@ static int mini_irc_session_finish_line(struct MiniIrcSession *session)
 
     ++session->lines_received;
     save_last_line(session, session->line_buf);
-    if (session->verbose)
+    if (session->verbose && session->console_output)
         print_text("irc line received\n");
     return mini_irc_session_handle_line(session, session->line_buf);
 }
@@ -1148,7 +1167,8 @@ int mini_irc_session_receive_data(struct MiniIrcSession *session,
             session->line_len = 0;
             session->line_buf[0] = '\0';
             session->line_discarding = 1;
-            print_text("irc line overflow\n");
+            if (session->console_output)
+                print_text("irc line overflow\n");
         }
     }
 

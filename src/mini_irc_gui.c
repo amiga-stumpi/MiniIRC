@@ -1310,6 +1310,7 @@ static int connect_irc(void)
     }
 
     mini_irc_session_init(&g_gui.session, irc_socket_send, &g_gui.sock_ctx);
+    mini_irc_session_set_console_output(&g_gui.session, 0);
     mini_irc_session_set_debug(&g_gui.session, session_debug_cb, 0);
     mini_irc_session_set_nick(&g_gui.session, g_nick_buf);
     g_gui.sock_ctx.base = g_gui.socket_base;
