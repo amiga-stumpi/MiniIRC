@@ -21,7 +21,7 @@
 #define MINI_IRC_ADDRBOOK_PATH "mini_irc.addr"
 #define MINI_IRC_DEBUG_LOG_PATH "MiniIRC-debug.log"
 #define MINI_IRC_FILE_DEBUG 0
-#define MINI_IRC_QUIT_FLUSH_TICKS 8
+#define MINI_IRC_QUIT_WAIT_TICKS 10
 
 #define MINI_IRC_HOST_SIZE 128
 #define MINI_IRC_NICK_SIZE 32
@@ -194,6 +194,7 @@ static int text_len(const char *s);
 static void layout_window(void);
 static void redraw_all(void);
 static void update_main_gadget_positions(void);
+static void process_rx_bytes(const char *data, int len);
 static void draw_button_window(struct Window *win, WORD x, WORD y, WORD w, WORD h, const char *label);
 
 static WORD g_list_top;
@@ -1304,29 +1305,54 @@ static void reset_channel_tabs(void)
 }
 
 
-static void flush_quit_before_close(void)
+static int wait_quit_remote_close(void)
 {
     int i;
+    int result;
+    int got;
+    int err;
 
     if (!g_gui.socket_base || g_gui.fd < 0)
-        return;
-    for (i = 0; i < MINI_IRC_QUIT_FLUSH_TICKS; ++i) {
+        return 0;
+    for (i = 0; i < MINI_IRC_QUIT_WAIT_TICKS; ++i) {
+        AMITCP13_BSD_FD_ZERO(&g_read_fds);
+        AMITCP13_BSD_FD_SET(g_gui.fd, &g_read_fds);
         AMITCP13_BSD_FD_ZERO(&g_write_fds);
         AMITCP13_BSD_FD_SET(g_gui.fd, &g_write_fds);
         g_timeout.tv_sec = 0;
-        g_timeout.tv_usec = 20000;
+        g_timeout.tv_usec = 100000;
         g_wait_signals = 0;
-        call_waitselect(g_gui.socket_base, g_gui.fd + 1, 0, &g_write_fds, &g_timeout);
-        Delay(1);
+        result = call_waitselect(g_gui.socket_base,
+                                 g_gui.fd + 1,
+                                 &g_read_fds,
+                                 &g_write_fds,
+                                 &g_timeout);
+        if (result <= 0)
+            continue;
+        if (!AMITCP13_BSD_FD_ISSET(g_gui.fd, &g_read_fds))
+            continue;
+        got = call_recv(g_gui.socket_base, g_gui.fd, g_recv_buf, sizeof(g_recv_buf), 0);
+        if (got > 0) {
+            process_rx_bytes((const char *)g_recv_buf, got);
+            continue;
+        }
+        if (got == 0)
+            return 1;
+        err = call_errno(g_gui.socket_base);
+        if (err == AMITCP13_EWOULDBLOCK || err == AMITCP13_EAGAIN)
+            continue;
+        return 0;
     }
+    return 0;
 }
 
 static void disconnect_irc(const char *reason)
 {
     debug_log("DISCONNECT", reason ? reason : "Disconnected");
     if (g_gui.connected) {
+        status_text("Quitting...");
         mini_irc_session_send_line(&g_gui.session, MINI_IRC_QUIT_MESSAGE);
-        flush_quit_before_close();
+        wait_quit_remote_close();
     }
     if (g_gui.fd >= 0 && g_gui.socket_base)
         call_close_socket(g_gui.socket_base, g_gui.fd);
