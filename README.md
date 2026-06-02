@@ -56,7 +56,8 @@ The main screen layout is:
 
 Use `/nick newname` in the message input field to request a nick change on the
 current IRC server. Incoming private messages open a separate private chat tab
-with the sender, and replies from that tab go back to that nick.
+with the sender, and replies from that tab go back to that nick. Double-clicking
+a nick in the user list opens the same kind of private chat tab.
 
 Use `Settings -> Background...` to choose the screen background color. The
 selection is saved to `mini_irc.conf` in the startup/current directory.

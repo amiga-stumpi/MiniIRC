@@ -168,6 +168,9 @@ static int g_tab_count;
 static int g_active_tab;
 static struct MiniIrcAddr g_addrs[MINI_IRC_MAX_ADDRS];
 static int g_addr_count;
+static char g_last_user_click_nick[MINI_IRC_NICK_SIZE];
+static ULONG g_last_user_click_seconds;
+static ULONG g_last_user_click_micros;
 
 static char g_host_buf[MINI_IRC_HOST_SIZE] = "irc.libera.chat";
 static char g_host_undo[MINI_IRC_HOST_SIZE];
@@ -237,6 +240,9 @@ struct Library *DiskfontBase;
 static int text_len(const char *s);
 static void layout_window(void);
 static void redraw_all(void);
+static void draw_channel_list(void);
+static void draw_user_list(void);
+static void draw_output(void);
 static void update_main_gadget_positions(void);
 static void process_rx_bytes(const char *data, int len);
 static void draw_button_window(struct Window *win, WORD x, WORD y, WORD w, WORD h, const char *label);
@@ -1019,6 +1025,30 @@ static void tab_users_clear(int tab_idx)
     if (tab_idx < 0 || tab_idx >= g_tab_count)
         return;
     g_tabs[tab_idx].user_count = 0;
+}
+
+static void open_private_chat_tab(const char *nick)
+{
+    int idx;
+
+    if (!nick || !nick[0])
+        return;
+    if (text_equal_ci(nick, g_nick_buf)) {
+        status_text("This is your nick");
+        return;
+    }
+    idx = tab_add(nick);
+    if (idx < 0) {
+        status_text("No free chat tab");
+        return;
+    }
+    tab_user_add(idx, g_nick_buf);
+    tab_user_add(idx, nick);
+    g_active_tab = idx;
+    draw_channel_list();
+    draw_user_list();
+    draw_output();
+    status_text("Private chat opened");
 }
 
 static void draw_panel_box(WORD x, WORD y, WORD w, WORD h, const char *title)
@@ -3126,7 +3156,35 @@ static void handle_menu(UWORD code)
     }
 }
 
-static void handle_mouse_click(WORD mx, WORD my)
+static int handle_user_list_click(WORD mx, WORD my, ULONG seconds, ULONG micros)
+{
+    int row;
+    struct MiniIrcTab *tab;
+    char nick[MINI_IRC_NICK_SIZE];
+
+    if (mx < g_user_x || mx > g_user_x + g_user_w ||
+        my < g_list_top || my > g_list_bottom)
+        return 0;
+    if (g_active_tab < 0 || g_active_tab >= g_tab_count)
+        return 1;
+    tab = &g_tabs[g_active_tab];
+    row = (my - g_list_top) / g_char_h;
+    if (row < 0 || row >= tab->user_count)
+        return 1;
+    copy_text(nick, sizeof(nick), tab->users[row]);
+    if (text_equal_ci(nick, g_last_user_click_nick) &&
+        DoubleClick(g_last_user_click_seconds, g_last_user_click_micros, seconds, micros)) {
+        g_last_user_click_nick[0] = 0;
+        open_private_chat_tab(nick);
+        return 1;
+    }
+    copy_text(g_last_user_click_nick, sizeof(g_last_user_click_nick), nick);
+    g_last_user_click_seconds = seconds;
+    g_last_user_click_micros = micros;
+    return 1;
+}
+
+static void handle_mouse_click(WORD mx, WORD my, ULONG seconds, ULONG micros)
 {
     int row;
 
@@ -3136,6 +3194,8 @@ static void handle_mouse_click(WORD mx, WORD my)
         leave_active_channel();
         return;
     }
+    if (handle_user_list_click(mx, my, seconds, micros))
+        return;
 
     if (mx < g_chan_x || mx > g_chan_x + g_chan_w ||
         my < g_list_top || my > g_list_bottom)
@@ -3356,7 +3416,7 @@ int main(int argc, char **argv)
                     code = next_code;
                 }
             } else if (cls == IDCMP_MOUSEBUTTONS && code == SELECTDOWN) {
-                handle_mouse_click(g_win->MouseX, g_win->MouseY);
+                handle_mouse_click(g_win->MouseX, g_win->MouseY, msg->Seconds, msg->Micros);
             } else if (cls == IDCMP_GADGETUP && gad) {
                 if (gad->GadgetID == MINI_IRC_GID_JOIN ||
                     gad->GadgetID == MINI_IRC_GID_JOIN_STR)

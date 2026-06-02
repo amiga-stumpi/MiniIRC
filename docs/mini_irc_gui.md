@@ -95,9 +95,10 @@ Settings:
 ## Private Chats
 
 When another user sends a private message to your current nick, MiniIRC opens a
-private chat tab named after that user. The tab user list contains your nick and
-the sender. Typing in that private tab sends replies back to that nick. The
-Leave button closes private chat tabs locally without sending `PART`.
+private chat tab named after that user. Double-clicking a nick in the user list
+opens the same kind of private chat tab. The tab user list contains your nick
+and the other user. Typing in that private tab sends replies back to that nick.
+The Leave button closes private chat tabs locally without sending `PART`.
 
 ## Debug Log
 
