@@ -2,11 +2,14 @@
 #define AMITCP13_TOOLS_MINI_IRC_SESSION_H
 
 typedef int (*MiniIrcSendFn)(void *ctx, const char *data, int len);
+typedef void (*MiniIrcDebugFn)(void *ctx, const char *tag, const char *text);
 
 struct MiniIrcSession
 {
     MiniIrcSendFn send_fn;
     void *send_ctx;
+    MiniIrcDebugFn debug_fn;
+    void *debug_ctx;
     char nick[32];
     char base_nick[32];
     char channel[64];
@@ -47,6 +50,9 @@ struct MiniIrcSession
 void mini_irc_session_init(struct MiniIrcSession *session,
                            MiniIrcSendFn send_fn,
                            void *send_ctx);
+void mini_irc_session_set_debug(struct MiniIrcSession *session,
+                                MiniIrcDebugFn debug_fn,
+                                void *debug_ctx);
 
 int mini_irc_session_set_channel(struct MiniIrcSession *session,
                                  const char *channel);

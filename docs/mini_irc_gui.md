@@ -69,6 +69,13 @@ Settings:
 - `Address Book...`: opens the same compact connect/address-book requester.
 - `Font...`: opens the OS1.3-safe font selector.
 
+## Live Debug Log
+
+MiniIRC writes a live debug log to `MiniIRC-debug.log` in the startup/current
+directory. Important GUI, socket, IRC line, PING/PONG, and send events are
+written immediately with DOS `Write()`, so the file remains useful after a
+reset if MiniIRC cannot be closed cleanly.
+
 ## IRC Keepalive
 
 PING/PONG handling is command-token based and case-insensitive. MiniIRC sends

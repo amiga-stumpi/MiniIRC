@@ -7,6 +7,12 @@
 
 static char g_send_buf[MINI_IRC_SEND_SIZE];
 
+static void debug_event(struct MiniIrcSession *session, const char *tag, const char *text)
+{
+    if (session && session->debug_fn)
+        session->debug_fn(session->debug_ctx, tag, text ? text : "");
+}
+
 static void print_text(const char *text)
 {
     LONG len = 0;
@@ -736,6 +742,8 @@ void mini_irc_session_init(struct MiniIrcSession *session,
 
     session->send_fn = send_fn;
     session->send_ctx = send_ctx;
+    session->debug_fn = 0;
+    session->debug_ctx = 0;
     session->nick[0] = '\0';
     session->base_nick[0] = '\0';
     session->channel[0] = '\0';
@@ -780,6 +788,16 @@ void mini_irc_session_init(struct MiniIrcSession *session,
     session->last_line_next = 0;
     session->last_pong[0] = '\0';
     session->last_pong_len = 0;
+}
+
+void mini_irc_session_set_debug(struct MiniIrcSession *session,
+                                MiniIrcDebugFn debug_fn,
+                                void *debug_ctx)
+{
+    if (!session)
+        return;
+    session->debug_fn = debug_fn;
+    session->debug_ctx = debug_ctx;
 }
 
 int mini_irc_session_set_channel(struct MiniIrcSession *session,
@@ -848,9 +866,12 @@ int mini_irc_session_send_line(struct MiniIrcSession *session,
     if (!append_text(g_send_buf, &pos, MINI_IRC_SEND_SIZE, "\r\n"))
         return 0;
 
+    debug_event(session, "SEND_LINE", g_send_buf);
     result = mini_irc_session_send_raw(session, g_send_buf, pos);
-    if (!result && session)
+    if (!result && session) {
         ++session->send_failures;
+        debug_event(session, "SEND_LINE_FAIL", line);
+    }
 
     return result;
 }
@@ -898,8 +919,10 @@ int mini_irc_session_send_pong(struct MiniIrcSession *session,
         print_number((LONG)pos);
     }
 
+    debug_event(session, "PONG_SEND", g_send_buf);
     result = mini_irc_session_send_raw(session, g_send_buf, pos);
     if (result && session) {
+        debug_event(session, "PONG_OK", g_send_buf);
         ++session->pong_send_success;
         ++session->pong_sent;
         if (session->verbose) {
@@ -908,6 +931,7 @@ int mini_irc_session_send_pong(struct MiniIrcSession *session,
         }
     } else if (session) {
         ++session->pong_send_failures;
+        debug_event(session, "PONG_FAIL", g_send_buf);
     }
 
     return result;
@@ -975,6 +999,7 @@ int mini_irc_session_handle_line(struct MiniIrcSession *session,
         return 0;
 
     parse_irc_line(line, &prefix, &prefix_len, &command, &command_len, &payload);
+    debug_event(session, "RX_LINE", line);
 
     contains_ping = text_contains_ci(line, "PING");
     if (contains_ping) {
@@ -1007,6 +1032,7 @@ int mini_irc_session_handle_line(struct MiniIrcSession *session,
         }
         ++session->ping_command_detected;
         ++session->ping_lines_seen;
+        debug_event(session, "PING", payload);
         return mini_irc_session_send_pong(session, payload);
     }
 

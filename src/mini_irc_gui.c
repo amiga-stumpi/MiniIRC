@@ -17,6 +17,7 @@
 
 #define MINI_IRC_GUI_TITLE "MiniIRC v0.2 by Marcel Jaehne (c)2026"
 #define MINI_IRC_ADDRBOOK_PATH "mini_irc.addr"
+#define MINI_IRC_DEBUG_LOG_PATH "MiniIRC-debug.log"
 
 #define MINI_IRC_HOST_SIZE 128
 #define MINI_IRC_NICK_SIZE 32
@@ -133,6 +134,8 @@ static WORD g_char_w = 8;
 static WORD g_char_h = 8;
 static WORD g_baseline = 7;
 
+static BPTR g_debug_fh;
+static unsigned long g_debug_seq;
 static struct MiniIrcGui g_gui;
 static struct MiniIrcTab g_tabs[MINI_IRC_MAX_TABS];
 static int g_tab_count;
@@ -181,6 +184,7 @@ static UWORD g_font_size_count;
 static UWORD g_font_size_selected;
 struct Library *DiskfontBase;
 
+static int text_len(const char *s);
 static void layout_window(void);
 static void redraw_all(void);
 static void update_main_gadget_positions(void);
@@ -197,6 +201,90 @@ static WORD g_term_x;
 static WORD g_term_y;
 static WORD g_term_w;
 static WORD g_term_h;
+
+
+static void debug_write_raw(const char *text)
+{
+    if (g_debug_fh && text)
+        Write(g_debug_fh, (APTR)text, text_len(text));
+}
+
+static void debug_write_ulong(unsigned long value)
+{
+    char tmp[12];
+    char out[12];
+    int pos = 0;
+    int i;
+
+    if (value == 0) {
+        debug_write_raw("0");
+        return;
+    }
+    while (value && pos < (int)sizeof(tmp)) {
+        tmp[pos++] = (char)('0' + (value % 10UL));
+        value /= 10UL;
+    }
+    for (i = 0; i < pos; ++i)
+        out[i] = tmp[pos - 1 - i];
+    out[i] = 0;
+    debug_write_raw(out);
+}
+
+static void debug_log(const char *tag, const char *text)
+{
+    if (!g_debug_fh)
+        return;
+    debug_write_ulong(++g_debug_seq);
+    debug_write_raw(" ");
+    debug_write_raw(tag ? tag : "EVENT");
+    if (text && text[0]) {
+        debug_write_raw(" ");
+        debug_write_raw(text);
+    }
+    debug_write_raw("\n");
+}
+
+static void debug_log_num(const char *tag, LONG value)
+{
+    char sign[2];
+
+    if (!g_debug_fh)
+        return;
+    debug_write_ulong(++g_debug_seq);
+    debug_write_raw(" ");
+    debug_write_raw(tag ? tag : "NUM");
+    debug_write_raw(" ");
+    if (value < 0) {
+        sign[0] = '-';
+        sign[1] = 0;
+        debug_write_raw(sign);
+        value = -value;
+    }
+    debug_write_ulong((unsigned long)value);
+    debug_write_raw("\n");
+}
+
+static void debug_open(void)
+{
+    g_debug_fh = Open((STRPTR)MINI_IRC_DEBUG_LOG_PATH, MODE_NEWFILE);
+    g_debug_seq = 0;
+    debug_log("START", MINI_IRC_GUI_TITLE);
+}
+
+static void debug_close(void)
+{
+    debug_log("STOP", "MiniIRC exit");
+    if (g_debug_fh) {
+        Close(g_debug_fh);
+        g_debug_fh = 0;
+    }
+}
+
+static void session_debug_cb(void *ctx, const char *tag, const char *text)
+{
+    (void)ctx;
+    debug_log(tag, text);
+}
 
 static int text_len(const char *s)
 {
@@ -1088,10 +1176,16 @@ static int send_all(struct Library *base, int fd, const char *buf, int len)
 static int irc_socket_send(void *ctx, const char *data, int len)
 {
     struct MiniIrcSocketCtx *sock_ctx = (struct MiniIrcSocketCtx *)ctx;
+    int result;
 
-    if (!sock_ctx || !sock_ctx->base || sock_ctx->fd < 0)
+    if (!sock_ctx || !sock_ctx->base || sock_ctx->fd < 0) {
+        debug_log("SEND_BADCTX", "missing socket context");
         return 0;
-    return send_all(sock_ctx->base, sock_ctx->fd, data, len);
+    }
+    debug_log_num("SEND_LEN", len);
+    result = send_all(sock_ctx->base, sock_ctx->fd, data, len);
+    debug_log_num(result ? "SEND_OK" : "SEND_FAIL", len);
+    return result;
 }
 
 static int resolve_server(struct Library *base, const char *server, ULONG *out_ip)
@@ -1150,6 +1244,7 @@ static int send_registration(void)
 
 static void disconnect_irc(const char *reason)
 {
+    debug_log("DISCONNECT", reason ? reason : "Disconnected");
     if (g_gui.connected)
         mini_irc_session_send_line(&g_gui.session, "QUIT :bye");
     if (g_gui.fd >= 0 && g_gui.socket_base)
@@ -1169,6 +1264,7 @@ static int connect_irc(void)
     ULONG ip;
     UWORD port;
 
+    debug_log("CONNECT_START", g_host_buf);
     trim_text(g_host_buf);
     trim_text(g_port_buf);
     trim_text(g_nick_buf);
@@ -1214,6 +1310,7 @@ static int connect_irc(void)
     }
 
     mini_irc_session_init(&g_gui.session, irc_socket_send, &g_gui.sock_ctx);
+    mini_irc_session_set_debug(&g_gui.session, session_debug_cb, 0);
     mini_irc_session_set_nick(&g_gui.session, g_nick_buf);
     g_gui.sock_ctx.base = g_gui.socket_base;
     g_gui.sock_ctx.fd = g_gui.fd;
@@ -1428,8 +1525,10 @@ static void process_rx_bytes(const char *data, int len)
             continue;
         if (c == '\n') {
             g_rx_line[g_rx_len] = 0;
-            if (g_rx_len > 0)
+            if (g_rx_len > 0) {
+                debug_log("LINE_COMPLETE", g_rx_line);
                 route_line_to_tab(g_rx_line);
+            }
             g_rx_len = 0;
             continue;
         }
@@ -1456,23 +1555,29 @@ static void poll_socket(void)
     g_timeout.tv_usec = 0;
     g_wait_signals = 0;
     result = call_waitselect(g_gui.socket_base, g_gui.fd + 1, &g_read_fds, 0, &g_timeout);
+    if (result < 0)
+        debug_log_num("WAITSELECT_ERR", call_errno(g_gui.socket_base));
     if (result <= 0 || !AMITCP13_BSD_FD_ISSET(g_gui.fd, &g_read_fds))
         return;
+    debug_log_num("WAITSELECT_READY", result);
     chunks = 0;
     while (chunks < MINI_IRC_RX_CHUNKS_PER_TICK) {
         got = call_recv(g_gui.socket_base, g_gui.fd, g_recv_buf, sizeof(g_recv_buf), 0);
         if (got > 0) {
+            debug_log_num("RECV", got);
             process_rx_bytes((const char *)g_recv_buf, got);
             ++chunks;
             continue;
         }
         if (got == 0) {
+            debug_log("RECV_EOF", "remote closed");
             disconnect_irc("Connection closed");
             return;
         }
         err = call_errno(g_gui.socket_base);
         if (err == AMITCP13_EWOULDBLOCK || err == AMITCP13_EAGAIN)
             return;
+        debug_log_num("RECV_ERR", err);
         disconnect_irc("Socket error");
         return;
     }
@@ -1651,6 +1756,7 @@ static void add_current_to_addrbook(void)
     int i;
     int slot = -1;
 
+    debug_log("ADDR_SAVE", g_host_buf);
     trim_text(g_host_buf);
     trim_text(g_port_buf);
     trim_text(g_nick_buf);
@@ -2417,6 +2523,7 @@ int main(int argc, char **argv)
 
     (void)argc;
     (void)argv;
+    debug_open();
     memset(&g_gui, 0, sizeof(g_gui));
     g_gui.fd = -1;
     g_gui.running = 1;
@@ -2432,10 +2539,24 @@ int main(int argc, char **argv)
 
     IntuitionBase = (struct IntuitionBase *)OpenLibrary((STRPTR)"intuition.library", 0);
     GfxBase = (struct GfxBase *)OpenLibrary((STRPTR)"graphics.library", 0);
-    if (!IntuitionBase || !GfxBase)
+    if (!IntuitionBase || !GfxBase) {
+        debug_log("ERROR", "library open failed");
+        if (GfxBase)
+            CloseLibrary((struct Library *)GfxBase);
+        if (IntuitionBase)
+            CloseLibrary((struct Library *)IntuitionBase);
+        debug_close();
         return 20;
-    if (!open_main_window())
+    }
+    if (!open_main_window()) {
+        debug_log("ERROR", "main window failed");
+        if (GfxBase)
+            CloseLibrary((struct Library *)GfxBase);
+        if (IntuitionBase)
+            CloseLibrary((struct Library *)IntuitionBase);
+        debug_close();
         return 20;
+    }
     tab_append(0, "Use Project/Connect to open a server.");
     redraw_all();
 
@@ -2483,5 +2604,6 @@ int main(int argc, char **argv)
         CloseLibrary((struct Library *)GfxBase);
     if (IntuitionBase)
         CloseLibrary((struct Library *)IntuitionBase);
+    debug_close();
     return 0;
 }
