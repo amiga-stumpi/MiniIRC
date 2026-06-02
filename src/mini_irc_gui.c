@@ -15,7 +15,7 @@
 #include "amitcp13/bsdsocket.h"
 #include "amitcp13/tools/mini_irc_session.h"
 
-#define MINI_IRC_GUI_TITLE "MiniIRC v0.2 by Marcel Jaehne (c)2026"
+#define MINI_IRC_GUI_TITLE "MiniIRC v0.3 by Marcel Jaehne (c)2026"
 #define MINI_IRC_ADDRBOOK_PATH "mini_irc.addr"
 #define MINI_IRC_DEBUG_LOG_PATH "MiniIRC-debug.log"
 
@@ -32,12 +32,12 @@
 #define MINI_IRC_MAX_USERS 48
 #define MINI_IRC_LEFT_W 112
 #define MINI_IRC_RIGHT_W 118
-#define MINI_IRC_BOTTOM_H 26
+#define MINI_IRC_BOTTOM_H 46
 #define MINI_IRC_DEFAULT_PORT 6667
 #define MINI_IRC_CONNECT_TIMEOUT 15
 #define MINI_IRC_RX_CHUNKS_PER_TICK 4
-#define MINI_IRC_CHIPRAM_100K 102400UL
-#define MINI_IRC_CHIPRAM_256K 262144UL
+#define MINI_IRC_CHIPRAM_80K 81920UL
+#define MINI_IRC_CHIPRAM_160K 163840UL
 #define MINI_IRC_CONNECT_WIN_W 424
 #define MINI_IRC_CONNECT_WIN_H 152
 #define MINI_IRC_CONNECT_LIST_X 12
@@ -731,7 +731,8 @@ static void clear_rect(WORD x1, WORD y1, WORD x2, WORD y2)
 static void status_text(const char *text)
 {
     gui_rp();
-    clear_rect(4, g_status_y - g_baseline - 2, g_win->Width - 5, g_win->Height - 3);
+    clear_rect(4, (WORD)(g_status_y - g_baseline - 2),
+               (WORD)(g_win->Width - 5), (WORD)(g_status_y + 3));
     draw_text_at(6, g_status_y, text ? text : "");
 }
 
@@ -948,8 +949,8 @@ static void draw_static_controls(void)
     SetAPen(g_win->RPort, 1);
     Move(g_win->RPort, 4, (WORD)(g_status_y - g_char_h - 5));
     Draw(g_win->RPort, (WORD)(g_win->Width - 5), (WORD)(g_status_y - g_char_h - 5));
-    draw_text_at(8, (WORD)(g_input_y + g_baseline + 5), "Join");
-    draw_text_at(218, (WORD)(g_input_y + g_baseline + 5), "Input");
+    draw_text_at(8, (WORD)(g_join_gadget.TopEdge + g_baseline + 5), "Room");
+    draw_text_at(8, (WORD)(g_msg_gadget.TopEdge + g_baseline + 5), "Text");
 }
 
 static void draw_button_window(struct Window *win,
@@ -958,11 +959,16 @@ static void draw_button_window(struct Window *win,
                                WORD w,
                                WORD h,
                                const char *label);
+static void draw_field_box(WORD x, WORD y, WORD w, WORD h);
 static void draw_main_buttons(void);
 
 static void draw_main_buttons(void)
 {
     gui_rp();
+    draw_field_box(g_join_gadget.LeftEdge, g_join_gadget.TopEdge,
+                   g_join_gadget.Width, g_join_gadget.Height);
+    draw_field_box(g_msg_gadget.LeftEdge, g_msg_gadget.TopEdge,
+                   g_msg_gadget.Width, g_msg_gadget.Height);
     draw_button_window(g_win, g_join_button.LeftEdge, g_join_button.TopEdge,
                        g_join_button.Width, g_join_button.Height, "Join");
     draw_button_window(g_win, g_send_gadget.LeftEdge, g_send_gadget.TopEdge,
@@ -1673,6 +1679,18 @@ static void draw_button_window(struct Window *win,
     Text(win->RPort, (STRPTR)label, text_len(label));
 }
 
+static void draw_field_box(WORD x, WORD y, WORD w, WORD h)
+{
+    SetAPen(g_win->RPort, 1);
+    SetBPen(g_win->RPort, 0);
+    SetDrMd(g_win->RPort, JAM1);
+    Move(g_win->RPort, x, y);
+    Draw(g_win->RPort, (WORD)(x + w), y);
+    Draw(g_win->RPort, (WORD)(x + w), (WORD)(y + h));
+    Draw(g_win->RPort, x, (WORD)(y + h));
+    Draw(g_win->RPort, x, y);
+}
+
 static void load_addrbook(void)
 {
     BPTR fh;
@@ -2331,22 +2349,31 @@ static void setup_main_gadgets(void)
 static void update_main_gadget_positions(void)
 {
     WORD w = g_win->Width;
-    WORD y = (WORD)(g_input_y + 2);
+    WORD join_y = (WORD)(g_input_y + 3);
+    WORD msg_y = (WORD)(g_input_y + 24);
     WORD send_x;
+    WORD join_button_x;
 
-    g_join_gadget.LeftEdge = 42;
-    g_join_gadget.TopEdge = y;
-    g_join_gadget.Width = 128;
-    g_join_button.LeftEdge = 176;
-    g_join_button.TopEdge = y;
-    g_msg_gadget.LeftEdge = 268;
-    g_msg_gadget.TopEdge = y;
+    g_join_gadget.LeftEdge = 48;
+    g_join_gadget.TopEdge = join_y;
+    g_join_gadget.Width = 180;
+    join_button_x = (WORD)(g_join_gadget.LeftEdge + g_join_gadget.Width + 8);
+    g_join_button.LeftEdge = join_button_x;
+    g_join_button.TopEdge = join_y;
+    g_msg_gadget.LeftEdge = 48;
+    g_msg_gadget.TopEdge = msg_y;
     send_x = (WORD)(w - 52);
     g_send_gadget.LeftEdge = send_x;
-    g_send_gadget.TopEdge = y;
+    g_send_gadget.TopEdge = msg_y;
     g_msg_gadget.Width = (WORD)(send_x - g_msg_gadget.LeftEdge - 8);
     if (g_msg_gadget.Width < 80)
         g_msg_gadget.Width = 80;
+    if (join_button_x + g_join_button.Width + 4 > send_x) {
+        g_join_gadget.Width = (WORD)(send_x - g_join_gadget.LeftEdge - g_join_button.Width - 16);
+        if (g_join_gadget.Width < 80)
+            g_join_gadget.Width = 80;
+        g_join_button.LeftEdge = (WORD)(g_join_gadget.LeftEdge + g_join_gadget.Width + 8);
+    }
 }
 
 static void handle_menu(UWORD code)
@@ -2392,17 +2419,18 @@ static UBYTE choose_screen_depth(void)
 
     chip_free = AvailMem(MEMF_CHIP);
     g_screen_chip_free = chip_free;
-    if (chip_free <= MINI_IRC_CHIPRAM_100K)
+    if (chip_free <= MINI_IRC_CHIPRAM_80K)
         return 2;
-    if (chip_free < MINI_IRC_CHIPRAM_256K)
+    if (chip_free < MINI_IRC_CHIPRAM_160K)
         return 3;
     return 4;
 }
 
 static void apply_screen_palette(void)
 {
-    static const UWORD colors[8] = {
-        0x000, 0xfff, 0xf00, 0x0f0, 0x00f, 0xf0f, 0xff0, 0x0ff
+    static const UWORD colors[16] = {
+        0x000, 0xfff, 0xf00, 0x0f0, 0x00f, 0xf0f, 0xff0, 0x0ff,
+        0x777, 0xaaa, 0x800, 0x080, 0x008, 0x808, 0x880, 0x088
     };
     struct ViewPort *vp;
     UWORD count;
@@ -2413,8 +2441,8 @@ static void apply_screen_palette(void)
     if (!vp)
         return;
     count = 1U << g_screen_depth;
-    if (count > 8)
-        count = 8;
+    if (count > 16)
+        count = 16;
     LoadRGB4(vp, colors, count);
 }
 

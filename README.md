@@ -7,7 +7,7 @@ to the network through `bsdsocket.library`.
 Version:
 
 ```text
-MiniIRC v0.2 by Marcel Jaehne (c)2026
+MiniIRC v0.3 by Marcel Jaehne (c)2026
 ```
 
 ## Requirements
@@ -57,7 +57,7 @@ Use `Settings -> Font...` to select a runtime font from `FONTS:`. MiniIRC
 tries `IBM.font/8`, `ibm.font/8`, `ruby.font/8`, and then `topaz.font/11`
 on startup before falling back to the screen font. A small 8-pixel font is
 recommended for the IRC lists and output. MiniIRC chooses 2, 3, or 4
-bitplanes using the same available Chip RAM thresholds as MiniTelnet.
+bitplanes based on available Chip RAM, preferring 4 bitplanes when enough memory is available.
 
 Joining a channel creates/selects the channel entry. Selecting a channel on the
 left changes the active conversation. The user list is filled from IRC NAMES
