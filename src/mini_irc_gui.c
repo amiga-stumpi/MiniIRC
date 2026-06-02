@@ -72,9 +72,12 @@
 #define MINI_IRC_FONT_LIST_W 150
 #define MINI_IRC_FONT_SIZE_X 174
 #define MINI_IRC_FONT_SIZE_W 58
+#define MINI_IRC_FONT_COLOR_X 238
+#define MINI_IRC_FONT_COLOR_W 94
 #define MINI_IRC_FONT_LIST_H (MINI_IRC_FONT_VISIBLE * MINI_IRC_FONT_ROW_H)
-#define MINI_IRC_FONT_WIN_W 292
+#define MINI_IRC_FONT_WIN_W 390
 #define MINI_IRC_FONT_WIN_H 178
+#define MINI_IRC_TEXT_COLOR_MAX 8
 #define MINI_IRC_BG_COLOR_MAX 8
 #define MINI_IRC_BG_WIN_W 210
 #define MINI_IRC_BG_WIN_H 142
@@ -151,6 +154,8 @@ static UWORD g_font_size;
 static ULONG g_screen_chip_free;
 static UBYTE g_screen_depth;
 static UBYTE g_bg_color_index;
+static UBYTE g_text_color_index;
+static UBYTE g_font_color_selected;
 static WORD g_char_w = 8;
 static WORD g_char_h = 8;
 static WORD g_baseline = 7;
@@ -197,6 +202,18 @@ static struct MenuItem g_project_items[3];
 static struct MenuItem g_settings_items[3];
 static struct IntuiText g_project_text[3];
 static struct IntuiText g_settings_text[3];
+
+
+static const struct MiniIrcBgColor g_text_colors[MINI_IRC_TEXT_COLOR_MAX] = {
+    { "White", 0xfff },
+    { "Green", 0x0f0 },
+    { "Yellow", 0xff0 },
+    { "Cyan", 0x0ff },
+    { "Red", 0xf00 },
+    { "Blue", 0x00f },
+    { "Purple", 0xf0f },
+    { "Gray", 0xaaa }
+};
 
 static const struct MiniIrcBgColor g_bg_colors[MINI_IRC_BG_COLOR_MAX] = {
     { "Black", 0x000 },
@@ -2029,6 +2046,17 @@ static int background_color_index_by_name(const char *name)
     return -1;
 }
 
+static int text_color_index_by_name(const char *name)
+{
+    int i;
+
+    for (i = 0; i < MINI_IRC_TEXT_COLOR_MAX; ++i) {
+        if (text_equal_ci(name, g_text_colors[i].name))
+            return i;
+    }
+    return -1;
+}
+
 static void load_config(void)
 {
     BPTR fh;
@@ -2067,6 +2095,10 @@ static void load_config(void)
             idx = background_color_index_by_name(eq + 1);
             if (idx >= 0)
                 g_bg_color_index = (UBYTE)idx;
+        } else if (text_equal_ci(line, "text_color")) {
+            idx = text_color_index_by_name(eq + 1);
+            if (idx >= 0)
+                g_text_color_index = (UBYTE)idx;
         }
     }
     if (len > 0) {
@@ -2081,6 +2113,10 @@ static void load_config(void)
                 idx = background_color_index_by_name(eq + 1);
                 if (idx >= 0)
                     g_bg_color_index = (UBYTE)idx;
+            } else if (text_equal_ci(line, "text_color")) {
+                idx = text_color_index_by_name(eq + 1);
+                if (idx >= 0)
+                    g_text_color_index = (UBYTE)idx;
             }
         }
     }
@@ -2093,6 +2129,8 @@ static void save_config(void)
 
     if (g_bg_color_index >= MINI_IRC_BG_COLOR_MAX)
         g_bg_color_index = 0;
+    if (g_text_color_index >= MINI_IRC_TEXT_COLOR_MAX)
+        g_text_color_index = 0;
     fh = Open((STRPTR)MINI_IRC_CONFIG_PATH, MODE_NEWFILE);
     if (!fh) {
         status_text("Could not save settings");
@@ -2101,6 +2139,9 @@ static void save_config(void)
     Write(fh, "# MiniIRC configuration\n", 24);
     Write(fh, "background=", 11);
     Write(fh, g_bg_colors[g_bg_color_index].name, text_len(g_bg_colors[g_bg_color_index].name));
+    Write(fh, "\n", 1);
+    Write(fh, "text_color=", 11);
+    Write(fh, g_text_colors[g_text_color_index].name, text_len(g_text_colors[g_text_color_index].name));
     Write(fh, "\n", 1);
     Close(fh);
 }
@@ -2438,6 +2479,8 @@ static void draw_font_selector(struct Window *win)
     Text(win->RPort, (STRPTR)"Font", 4);
     Move(win->RPort, MINI_IRC_FONT_SIZE_X, 18);
     Text(win->RPort, (STRPTR)"Size", 4);
+    Move(win->RPort, MINI_IRC_FONT_COLOR_X, 18);
+    Text(win->RPort, (STRPTR)"Color", 5);
     Move(win->RPort, MINI_IRC_FONT_LIST_X, MINI_IRC_FONT_LIST_Y);
     Draw(win->RPort, MINI_IRC_FONT_LIST_X + MINI_IRC_FONT_LIST_W, MINI_IRC_FONT_LIST_Y);
     Draw(win->RPort, MINI_IRC_FONT_LIST_X + MINI_IRC_FONT_LIST_W, MINI_IRC_FONT_LIST_Y + MINI_IRC_FONT_LIST_H);
@@ -2448,10 +2491,15 @@ static void draw_font_selector(struct Window *win)
     Draw(win->RPort, MINI_IRC_FONT_SIZE_X + MINI_IRC_FONT_SIZE_W, MINI_IRC_FONT_LIST_Y + MINI_IRC_FONT_LIST_H);
     Draw(win->RPort, MINI_IRC_FONT_SIZE_X, MINI_IRC_FONT_LIST_Y + MINI_IRC_FONT_LIST_H);
     Draw(win->RPort, MINI_IRC_FONT_SIZE_X, MINI_IRC_FONT_LIST_Y);
-    draw_button_window(win, 238, 48, 44, 14, "Up");
-    draw_button_window(win, 238, 68, 44, 14, "Down");
-    draw_button_window(win, 110, 150, 42, 14, "OK");
-    draw_button_window(win, 160, 150, 62, 14, "Cancel");
+    Move(win->RPort, MINI_IRC_FONT_COLOR_X, MINI_IRC_FONT_LIST_Y);
+    Draw(win->RPort, MINI_IRC_FONT_COLOR_X + MINI_IRC_FONT_COLOR_W, MINI_IRC_FONT_LIST_Y);
+    Draw(win->RPort, MINI_IRC_FONT_COLOR_X + MINI_IRC_FONT_COLOR_W, MINI_IRC_FONT_LIST_Y + MINI_IRC_FONT_LIST_H);
+    Draw(win->RPort, MINI_IRC_FONT_COLOR_X, MINI_IRC_FONT_LIST_Y + MINI_IRC_FONT_LIST_H);
+    Draw(win->RPort, MINI_IRC_FONT_COLOR_X, MINI_IRC_FONT_LIST_Y);
+    draw_button_window(win, 342, 48, 44, 14, "Up");
+    draw_button_window(win, 342, 68, 44, 14, "Down");
+    draw_button_window(win, 132, 150, 42, 14, "OK");
+    draw_button_window(win, 190, 150, 62, 14, "Cancel");
 
     for (row = 0; row < MINI_IRC_FONT_VISIBLE; ++row) {
         idx = (UWORD)(g_font_top + row);
@@ -2483,6 +2531,17 @@ static void draw_font_selector(struct Window *win)
         Move(win->RPort, (WORD)(MINI_IRC_FONT_SIZE_X + 3), y);
         Text(win->RPort, (STRPTR)line, i);
     }
+    for (row = 0; row < MINI_IRC_TEXT_COLOR_MAX && row < MINI_IRC_FONT_VISIBLE; ++row) {
+        line[0] = (row == g_font_color_selected) ? '>' : ' ';
+        line[1] = ' ';
+        i = 2;
+        for (j = 0; g_text_colors[row].name[j] && i < (int)sizeof(line) - 1; ++j)
+            line[i++] = g_text_colors[row].name[j];
+        line[i] = 0;
+        y = (WORD)(MINI_IRC_FONT_LIST_Y + 10 + row * MINI_IRC_FONT_ROW_H);
+        Move(win->RPort, (WORD)(MINI_IRC_FONT_COLOR_X + 3), y);
+        Text(win->RPort, (STRPTR)line, i);
+    }
 }
 
 static void open_font_selector(void)
@@ -2504,12 +2563,15 @@ static void open_font_selector(void)
 
     scan_fonts();
     scan_font_sizes();
+    g_font_color_selected = g_text_color_index;
+    if (g_font_color_selected >= MINI_IRC_TEXT_COLOR_MAX)
+        g_font_color_selected = 0;
     memset(&up_gad, 0, sizeof(up_gad));
     memset(&down_gad, 0, sizeof(down_gad));
     memset(&ok_gad, 0, sizeof(ok_gad));
     memset(&cancel_gad, 0, sizeof(cancel_gad));
     up_gad.NextGadget = &down_gad;
-    up_gad.LeftEdge = 238;
+    up_gad.LeftEdge = 342;
     up_gad.TopEdge = 48;
     up_gad.Width = 44;
     up_gad.Height = 14;
@@ -2518,7 +2580,7 @@ static void open_font_selector(void)
     up_gad.GadgetType = GTYP_BOOLGADGET;
     up_gad.GadgetID = 101;
     down_gad.NextGadget = &ok_gad;
-    down_gad.LeftEdge = 238;
+    down_gad.LeftEdge = 342;
     down_gad.TopEdge = 68;
     down_gad.Width = 44;
     down_gad.Height = 14;
@@ -2527,7 +2589,7 @@ static void open_font_selector(void)
     down_gad.GadgetType = GTYP_BOOLGADGET;
     down_gad.GadgetID = 102;
     ok_gad.NextGadget = &cancel_gad;
-    ok_gad.LeftEdge = 110;
+    ok_gad.LeftEdge = 132;
     ok_gad.TopEdge = 150;
     ok_gad.Width = 42;
     ok_gad.Height = 14;
@@ -2535,7 +2597,7 @@ static void open_font_selector(void)
     ok_gad.Activation = GACT_RELVERIFY;
     ok_gad.GadgetType = GTYP_BOOLGADGET;
     ok_gad.GadgetID = 103;
-    cancel_gad.LeftEdge = 160;
+    cancel_gad.LeftEdge = 190;
     cancel_gad.TopEdge = 150;
     cancel_gad.Width = 62;
     cancel_gad.Height = 14;
@@ -2596,6 +2658,10 @@ static void open_font_selector(void)
                         else
                             status_text("Font not available");
                     }
+                    g_text_color_index = g_font_color_selected;
+                    apply_screen_palette();
+                    save_config();
+                    redraw_all();
                     done = 1;
                 } else if (gad->GadgetID == 104) {
                     done = 1;
@@ -2614,6 +2680,13 @@ static void open_font_selector(void)
                     row = (UWORD)((my - MINI_IRC_FONT_LIST_Y) / MINI_IRC_FONT_ROW_H);
                     if (row < g_font_size_count) {
                         g_font_size_selected = row;
+                        draw_font_selector(win);
+                    }
+                } else if (mx >= MINI_IRC_FONT_COLOR_X && mx < MINI_IRC_FONT_COLOR_X + MINI_IRC_FONT_COLOR_W &&
+                    my >= MINI_IRC_FONT_LIST_Y && my < MINI_IRC_FONT_LIST_Y + MINI_IRC_FONT_LIST_H) {
+                    row = (UWORD)((my - MINI_IRC_FONT_LIST_Y) / MINI_IRC_FONT_ROW_H);
+                    if (row < MINI_IRC_TEXT_COLOR_MAX) {
+                        g_font_color_selected = (UBYTE)row;
                         draw_font_selector(win);
                     }
                 }
@@ -3032,7 +3105,10 @@ static void apply_screen_palette(void)
         return;
     if (g_bg_color_index >= MINI_IRC_BG_COLOR_MAX)
         g_bg_color_index = 0;
+    if (g_text_color_index >= MINI_IRC_TEXT_COLOR_MAX)
+        g_text_color_index = 0;
     colors[0] = g_bg_colors[g_bg_color_index].rgb;
+    colors[1] = g_text_colors[g_text_color_index].rgb;
     count = 1U << g_screen_depth;
     if (count > 16)
         count = 16;
