@@ -32,6 +32,11 @@
 #define MINI_IRC_BOTTOM_H 26
 #define MINI_IRC_DEFAULT_PORT 6667
 #define MINI_IRC_CONNECT_TIMEOUT 15
+#define MINI_IRC_CONNECT_WIN_W 312
+#define MINI_IRC_CONNECT_WIN_H 248
+#define MINI_IRC_CONNECT_WIN_MIN_H 164
+#define MINI_IRC_CONNECT_LIST_Y 100
+#define MINI_IRC_CONNECT_ROW_H 12
 
 #define MINI_IRC_GID_JOIN_STR 1
 #define MINI_IRC_GID_JOIN     2
@@ -1383,7 +1388,16 @@ static void add_current_to_addrbook(void)
 static void draw_connect_dialog(struct Window *win, int selected)
 {
     int i;
+    int max_rows;
     WORD y;
+    WORD button_y;
+
+    button_y = (WORD)(win->Height - 28);
+    if (button_y < 132)
+        button_y = 132;
+    max_rows = (button_y - MINI_IRC_CONNECT_LIST_Y - 4) / MINI_IRC_CONNECT_ROW_H;
+    if (max_rows < 0)
+        max_rows = 0;
 
     SetAPen(win->RPort, 0);
     RectFill(win->RPort, 0, 0, win->Width - 1, win->Height - 1);
@@ -1398,8 +1412,8 @@ static void draw_connect_dialog(struct Window *win, int selected)
     Text(win->RPort, (STRPTR)"Nick", 4);
     Move(win->RPort, 12, 84);
     Text(win->RPort, (STRPTR)"Address book", 12);
-    for (i = 0; i < g_addr_count; ++i) {
-        y = (WORD)(100 + i * 12);
+    for (i = 0; i < g_addr_count && i < max_rows; ++i) {
+        y = (WORD)(MINI_IRC_CONNECT_LIST_Y + i * MINI_IRC_CONNECT_ROW_H);
         if (i == selected) {
             SetAPen(win->RPort, 1);
             RectFill(win->RPort, 10, y - 9, win->Width - 12, y + 2);
@@ -1414,9 +1428,9 @@ static void draw_connect_dialog(struct Window *win, int selected)
         Move(win->RPort, 218, y);
         Text(win->RPort, (STRPTR)g_addrs[i].nick, text_len(g_addrs[i].nick));
     }
-    draw_button_window(win, 12, 210, 70, 18, "Connect");
-    draw_button_window(win, 92, 210, 58, 18, "Save");
-    draw_button_window(win, 160, 210, 64, 18, "Cancel");
+    draw_button_window(win, 12, button_y, 70, 18, "Connect");
+    draw_button_window(win, 92, button_y, 58, 18, "Save");
+    draw_button_window(win, 160, button_y, 64, 18, "Cancel");
 }
 
 static void open_connect_dialog(void)
@@ -1438,6 +1452,9 @@ static void open_connect_dialog(void)
     static struct Gadget connect_gad;
     static struct Gadget save_gad;
     static struct Gadget cancel_gad;
+    WORD win_w;
+    WORD win_h;
+    WORD button_y;
 
     memset(&host_si, 0, sizeof(host_si));
     memset(&port_si, 0, sizeof(port_si));
@@ -1486,8 +1503,17 @@ static void open_connect_dialog(void)
     nick_gad.SpecialInfo = &nick_si;
     nick_gad.GadgetID = MINI_IRC_CGID_NICK;
     connect_gad.NextGadget = &save_gad;
+    button_y = MINI_IRC_CONNECT_WIN_H - 28;
+    if (g_screen) {
+        win_h = (WORD)(g_screen->Height - 20);
+        if (win_h > MINI_IRC_CONNECT_WIN_H)
+            win_h = MINI_IRC_CONNECT_WIN_H;
+        if (win_h < MINI_IRC_CONNECT_WIN_MIN_H)
+            win_h = MINI_IRC_CONNECT_WIN_MIN_H;
+        button_y = (WORD)(win_h - 28);
+    }
     connect_gad.LeftEdge = 12;
-    connect_gad.TopEdge = 210;
+    connect_gad.TopEdge = button_y;
     connect_gad.Width = 70;
     connect_gad.Height = 18;
     connect_gad.Flags = GFLG_GADGHCOMP;
@@ -1496,7 +1522,7 @@ static void open_connect_dialog(void)
     connect_gad.GadgetID = MINI_IRC_CGID_CONNECT;
     save_gad.NextGadget = &cancel_gad;
     save_gad.LeftEdge = 92;
-    save_gad.TopEdge = 210;
+    save_gad.TopEdge = button_y;
     save_gad.Width = 58;
     save_gad.Height = 18;
     save_gad.Flags = GFLG_GADGHCOMP;
@@ -1504,7 +1530,7 @@ static void open_connect_dialog(void)
     save_gad.GadgetType = GTYP_BOOLGADGET;
     save_gad.GadgetID = MINI_IRC_CGID_SAVE;
     cancel_gad.LeftEdge = 160;
-    cancel_gad.TopEdge = 210;
+    cancel_gad.TopEdge = button_y;
     cancel_gad.Width = 64;
     cancel_gad.Height = 18;
     cancel_gad.Flags = GFLG_GADGHCOMP;
@@ -1513,9 +1539,18 @@ static void open_connect_dialog(void)
     cancel_gad.GadgetID = MINI_IRC_CGID_CANCEL;
 
     memset(&nw, 0, sizeof(nw));
+    win_w = MINI_IRC_CONNECT_WIN_W;
+    win_h = MINI_IRC_CONNECT_WIN_H;
     if (g_screen) {
-        nw.LeftEdge = (WORD)((g_screen->Width - 312) / 2);
-        nw.TopEdge = (WORD)((g_screen->Height - 248) / 2);
+        if (g_screen->Width < win_w)
+            win_w = g_screen->Width;
+        win_h = (WORD)(g_screen->Height - 20);
+        if (win_h > MINI_IRC_CONNECT_WIN_H)
+            win_h = MINI_IRC_CONNECT_WIN_H;
+        if (win_h < MINI_IRC_CONNECT_WIN_MIN_H)
+            win_h = MINI_IRC_CONNECT_WIN_MIN_H;
+        nw.LeftEdge = (WORD)((g_screen->Width - win_w) / 2);
+        nw.TopEdge = (WORD)((g_screen->Height - win_h) / 2);
         if (nw.LeftEdge < 0)
             nw.LeftEdge = 0;
         if (nw.TopEdge < 12)
@@ -1524,8 +1559,8 @@ static void open_connect_dialog(void)
         nw.LeftEdge = 30;
         nw.TopEdge = 24;
     }
-    nw.Width = 312;
-    nw.Height = 248;
+    nw.Width = win_w;
+    nw.Height = win_h;
     nw.DetailPen = 1;
     nw.BlockPen = 0;
     nw.IDCMPFlags = IDCMP_CLOSEWINDOW | IDCMP_GADGETUP |
@@ -1565,8 +1600,11 @@ static void open_connect_dialog(void)
             } else if (cls == IDCMP_MOUSEBUTTONS && code == SELECTDOWN) {
                 WORD mx = win->MouseX;
                 WORD my = win->MouseY;
-                if (my >= 91 && my < 91 + g_addr_count * 12) {
-                    selected = (my - 91) / 12;
+                button_y = (WORD)(win->Height - 28);
+                if (button_y < 132)
+                    button_y = 132;
+                if (my >= MINI_IRC_CONNECT_LIST_Y && my < button_y - 4) {
+                    selected = (my - MINI_IRC_CONNECT_LIST_Y) / MINI_IRC_CONNECT_ROW_H;
                     if (selected >= 0 && selected < g_addr_count) {
                         copy_text(g_host_buf, sizeof(g_host_buf), g_addrs[selected].host);
                         copy_text(g_port_buf, sizeof(g_port_buf), g_addrs[selected].port);
