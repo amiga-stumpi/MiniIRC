@@ -1917,7 +1917,7 @@ static void draw_connect_dialog(struct Window *win, int selected)
     for (i = 0; i < g_addr_count && i < MINI_IRC_CONNECT_VISIBLE; ++i) {
         y = (WORD)(MINI_IRC_CONNECT_LIST_Y + 10 + i * MINI_IRC_CONNECT_ROW_H);
         if (i == selected) {
-            SetAPen(win->RPort, 1);
+            SetAPen(win->RPort, 3);
             RectFill(win->RPort, (WORD)(MINI_IRC_CONNECT_LIST_X + 1), (WORD)(y - 8),
                      (WORD)(MINI_IRC_CONNECT_LIST_X + MINI_IRC_CONNECT_LIST_W - 1),
                      (WORD)(y + 1));
