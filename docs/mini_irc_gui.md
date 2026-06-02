@@ -48,6 +48,14 @@ omitted.
 Select a channel tab, type a message in the message field, and press `Send`.
 Messages cannot be sent from the `Status` tab.
 
+## Font
+
+Use `Settings -> Font...` to scan `FONTS:` and select a font and available
+bitmap size. MiniIRC prefers 8-pixel fonts, especially `IBM.font/8` or
+`ibm.font/8`, then falls back to `ruby.font/8`, `topaz.font/11`, or the screen
+font. The selected font is used for MiniIRC drawing and recalculates the visible
+rows and columns.
+
 ## Menus
 
 Project:
@@ -58,7 +66,8 @@ Project:
 
 Settings:
 
-- `Address Book...`: opens the same connect/address-book requester.
+- `Address Book...`: opens the same compact connect/address-book requester.
+- `Font...`: opens the OS1.3-safe font selector.
 
 ## Limits
 

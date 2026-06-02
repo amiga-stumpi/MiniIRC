@@ -59,6 +59,11 @@ The main screen layout is:
 - right side: user list for the active channel
 - bottom: join field and message input field
 
+Use `Settings -> Font...` to select a runtime font from `FONTS:`. MiniIRC
+tries `IBM.font/8`, `ibm.font/8`, `ruby.font/8`, and then `topaz.font/11`
+on startup before falling back to the screen font. A small 8-pixel font is
+recommended for the IRC lists and output.
+
 Joining a channel creates/selects the channel entry. Selecting a channel on the
 left changes the active conversation. The user list is filled from IRC NAMES
 replies and updated for basic JOIN/PART/QUIT events.

@@ -9,6 +9,7 @@
 #include <proto/dos.h>
 #include <proto/intuition.h>
 #include <proto/graphics.h>
+#include <proto/diskfont.h>
 
 #include "amitcp13/bsdsocket.h"
 #include "amitcp13/tools/mini_irc_session.h"
@@ -32,11 +33,37 @@
 #define MINI_IRC_BOTTOM_H 26
 #define MINI_IRC_DEFAULT_PORT 6667
 #define MINI_IRC_CONNECT_TIMEOUT 15
-#define MINI_IRC_CONNECT_WIN_W 312
-#define MINI_IRC_CONNECT_WIN_H 248
-#define MINI_IRC_CONNECT_WIN_MIN_H 164
-#define MINI_IRC_CONNECT_LIST_Y 100
-#define MINI_IRC_CONNECT_ROW_H 12
+#define MINI_IRC_CONNECT_WIN_W 424
+#define MINI_IRC_CONNECT_WIN_H 152
+#define MINI_IRC_CONNECT_LIST_X 12
+#define MINI_IRC_CONNECT_LIST_Y 26
+#define MINI_IRC_CONNECT_LIST_W 170
+#define MINI_IRC_CONNECT_ROW_H 10
+#define MINI_IRC_CONNECT_VISIBLE 8
+#define MINI_IRC_CONNECT_HOST_X 236
+#define MINI_IRC_CONNECT_HOST_Y 30
+#define MINI_IRC_CONNECT_HOST_W 170
+#define MINI_IRC_CONNECT_PORT_X 236
+#define MINI_IRC_CONNECT_PORT_Y 54
+#define MINI_IRC_CONNECT_PORT_W 60
+#define MINI_IRC_CONNECT_NICK_X 236
+#define MINI_IRC_CONNECT_NICK_Y 78
+#define MINI_IRC_CONNECT_NICK_W 110
+#define MINI_IRC_CONNECT_STRING_H 12
+#define MINI_IRC_CONNECT_BUTTON_Y 118
+#define MINI_IRC_FONT_NAME_MAX 64
+#define MINI_IRC_FONT_MAX 64
+#define MINI_IRC_FONT_SIZE_MAX 16
+#define MINI_IRC_FONT_VISIBLE 10
+#define MINI_IRC_FONT_ROW_H 10
+#define MINI_IRC_FONT_LIST_X 12
+#define MINI_IRC_FONT_LIST_Y 24
+#define MINI_IRC_FONT_LIST_W 150
+#define MINI_IRC_FONT_SIZE_X 174
+#define MINI_IRC_FONT_SIZE_W 58
+#define MINI_IRC_FONT_LIST_H (MINI_IRC_FONT_VISIBLE * MINI_IRC_FONT_ROW_H)
+#define MINI_IRC_FONT_WIN_W 292
+#define MINI_IRC_FONT_WIN_H 178
 
 #define MINI_IRC_GID_JOIN_STR 1
 #define MINI_IRC_GID_JOIN     2
@@ -91,7 +118,11 @@ struct MiniIrcGui
 
 static struct Screen *g_screen;
 static struct Window *g_win;
+static struct TextFont *g_screen_font;
 static struct TextFont *g_gui_font;
+static UBYTE g_gui_font_opened;
+static char g_font_name[MINI_IRC_FONT_NAME_MAX];
+static UWORD g_font_size;
 static WORD g_char_w = 8;
 static WORD g_char_h = 8;
 static WORD g_baseline = 7;
@@ -133,9 +164,21 @@ static struct Gadget g_join_button;
 
 static struct Menu g_menus[2];
 static struct MenuItem g_project_items[3];
-static struct MenuItem g_settings_items[1];
+static struct MenuItem g_settings_items[2];
 static struct IntuiText g_project_text[3];
-static struct IntuiText g_settings_text[1];
+static struct IntuiText g_settings_text[2];
+static char g_font_names[MINI_IRC_FONT_MAX][MINI_IRC_FONT_NAME_MAX];
+static UWORD g_font_count;
+static UWORD g_font_selected;
+static UWORD g_font_top;
+static UWORD g_font_sizes[MINI_IRC_FONT_SIZE_MAX];
+static UWORD g_font_size_count;
+static UWORD g_font_size_selected;
+struct Library *DiskfontBase;
+
+static void layout_window(void);
+static void redraw_all(void);
+static void update_main_gadget_positions(void);
 
 static WORD g_list_top;
 static WORD g_list_bottom;
@@ -301,6 +344,267 @@ static int parse_ipv4(const char *text, ULONG *out_ip)
     *out_ip = ((ULONG)parts[0] << 24) | ((ULONG)parts[1] << 16) |
               ((ULONG)parts[2] << 8) | (ULONG)parts[3];
     return 1;
+}
+
+
+static int ends_with_font(const char *name)
+{
+    int len;
+
+    if (!name)
+        return 0;
+    len = text_len(name);
+    if (len < 6)
+        return 0;
+    return text_equal_ci(name + len - 5, ".font");
+}
+
+static void copy_font_entry(char *dst, const char *src)
+{
+    copy_text(dst, MINI_IRC_FONT_NAME_MAX, src);
+}
+
+static void copy_font_name(char *dst, int max_len, const char *src)
+{
+    copy_text(dst, max_len, src ? src : "");
+}
+
+static int parse_numeric_name(const char *name, UWORD *out)
+{
+    ULONG value = 0;
+    int i = 0;
+
+    if (!name || !name[0])
+        return 0;
+    while (name[i]) {
+        if (name[i] < '0' || name[i] > '9')
+            return 0;
+        value = value * 10UL + (ULONG)(name[i] - '0');
+        if (value > 32UL)
+            return 0;
+        ++i;
+    }
+    if (value < 4UL)
+        return 0;
+    *out = (UWORD)value;
+    return 1;
+}
+
+static void strip_font_suffix(const char *font_name, char *base, int base_size)
+{
+    int len;
+    int copy_len;
+    int i;
+
+    if (!base || base_size <= 0)
+        return;
+    len = text_len(font_name);
+    copy_len = len;
+    if (len > 5 && ends_with_font(font_name))
+        copy_len = len - 5;
+    if (copy_len >= base_size)
+        copy_len = base_size - 1;
+    for (i = 0; i < copy_len; ++i)
+        base[i] = font_name[i];
+    base[copy_len] = 0;
+}
+
+static void make_font_size_path(const char *font_name, char *path, int path_size)
+{
+    char base[MINI_IRC_FONT_NAME_MAX];
+    int pos = 0;
+
+    strip_font_suffix(font_name, base, sizeof(base));
+    path[0] = 0;
+    append_text(path, &pos, path_size, "FONTS:");
+    append_text(path, &pos, path_size, base);
+}
+
+static void add_font_size(UWORD size)
+{
+    UWORD i;
+
+    for (i = 0; i < g_font_size_count; ++i) {
+        if (g_font_sizes[i] == size)
+            return;
+    }
+    if (g_font_size_count < MINI_IRC_FONT_SIZE_MAX)
+        g_font_sizes[g_font_size_count++] = size;
+}
+
+static void scan_fonts(void)
+{
+    BPTR lock;
+    struct FileInfoBlock *fib;
+
+    g_font_count = 0;
+    g_font_selected = 0;
+    g_font_top = 0;
+    fib = (struct FileInfoBlock *)AllocMem(sizeof(struct FileInfoBlock), MEMF_CLEAR);
+    if (!fib)
+        return;
+    lock = Lock((STRPTR)"FONTS:", ACCESS_READ);
+    if (lock) {
+        if (Examine(lock, fib)) {
+            while (ExNext(lock, fib) && g_font_count < MINI_IRC_FONT_MAX) {
+                if (fib->fib_DirEntryType < 0 && ends_with_font((const char *)fib->fib_FileName)) {
+                    copy_font_entry(g_font_names[g_font_count], (const char *)fib->fib_FileName);
+                    if (text_equal_ci(g_font_names[g_font_count], g_font_name))
+                        g_font_selected = g_font_count;
+                    ++g_font_count;
+                }
+            }
+        }
+        UnLock(lock);
+    }
+    FreeMem(fib, sizeof(struct FileInfoBlock));
+}
+
+static void scan_font_sizes(void)
+{
+    BPTR lock;
+    struct FileInfoBlock *fib;
+    char path[96];
+    UWORD size;
+    UWORD i;
+
+    g_font_size_count = 0;
+    g_font_size_selected = 0;
+    if (g_font_count == 0)
+        return;
+    fib = (struct FileInfoBlock *)AllocMem(sizeof(struct FileInfoBlock), MEMF_CLEAR);
+    if (!fib)
+        return;
+    make_font_size_path(g_font_names[g_font_selected], path, sizeof(path));
+    lock = Lock((STRPTR)path, ACCESS_READ);
+    if (lock) {
+        if (Examine(lock, fib)) {
+            while (ExNext(lock, fib) && g_font_size_count < MINI_IRC_FONT_SIZE_MAX) {
+                if (fib->fib_DirEntryType < 0 && parse_numeric_name((const char *)fib->fib_FileName, &size))
+                    add_font_size(size);
+            }
+        }
+        UnLock(lock);
+    }
+    FreeMem(fib, sizeof(struct FileInfoBlock));
+    if (g_font_size_count == 0)
+        add_font_size(g_font_size ? g_font_size : 8);
+    for (i = 0; i < g_font_size_count; ++i) {
+        if (g_font_sizes[i] == g_font_size) {
+            g_font_size_selected = i;
+            break;
+        }
+    }
+}
+
+static void number_to_text(UWORD value, char *dst, int dst_size)
+{
+    char tmp[8];
+    int pos = 0;
+    int i;
+
+    if (!dst || dst_size <= 0)
+        return;
+    if (value == 0) {
+        copy_text(dst, dst_size, "0");
+        return;
+    }
+    while (value && pos < (int)sizeof(tmp)) {
+        tmp[pos++] = (char)('0' + (value % 10));
+        value /= 10;
+    }
+    for (i = 0; i < pos && i < dst_size - 1; ++i)
+        dst[i] = tmp[pos - 1 - i];
+    dst[i] = 0;
+}
+
+static struct TextFont *open_named_font(const char *name, UWORD size)
+{
+    struct TextAttr attr;
+    struct TextFont *font;
+
+    if (!name || !name[0] || size == 0)
+        return 0;
+    attr.ta_Name = (STRPTR)name;
+    attr.ta_YSize = size;
+    attr.ta_Style = FS_NORMAL;
+    attr.ta_Flags = FPF_ROMFONT | FPF_DISKFONT;
+    font = OpenFont(&attr);
+    if (font)
+        return font;
+    if (!DiskfontBase)
+        DiskfontBase = OpenLibrary((STRPTR)"diskfont.library", 0);
+    if (DiskfontBase)
+        font = OpenDiskFont(&attr);
+    return font;
+}
+
+static void update_font_metrics(void)
+{
+    if (g_gui_font) {
+        g_char_w = g_gui_font->tf_XSize;
+        g_char_h = g_gui_font->tf_YSize;
+        g_baseline = g_gui_font->tf_Baseline;
+    }
+}
+
+static int apply_gui_font(const char *font_name, UWORD font_size)
+{
+    struct TextFont *new_font;
+    struct TextFont *old_font;
+    UBYTE old_opened;
+
+    new_font = open_named_font(font_name, font_size);
+    if (!new_font)
+        return 0;
+    old_font = g_gui_font;
+    old_opened = g_gui_font_opened;
+    g_gui_font = new_font;
+    g_gui_font_opened = 1;
+    copy_font_name(g_font_name, sizeof(g_font_name), font_name);
+    g_font_size = font_size;
+    update_font_metrics();
+    if (g_win)
+        SetFont(g_win->RPort, g_gui_font);
+    if (old_opened && old_font)
+        CloseFont(old_font);
+    if (g_win) {
+        layout_window();
+        update_main_gadget_positions();
+        redraw_all();
+    }
+    return 1;
+}
+
+static void install_default_font(void)
+{
+    g_gui_font = g_screen_font;
+    g_gui_font_opened = 0;
+    copy_font_name(g_font_name, sizeof(g_font_name), "window font");
+    g_font_size = 0;
+    if (apply_gui_font("IBM.font", 8))
+        return;
+    if (apply_gui_font("ibm.font", 8))
+        return;
+    if (apply_gui_font("ruby.font", 8))
+        return;
+    if (apply_gui_font("topaz.font", 11))
+        return;
+    update_font_metrics();
+}
+
+static void close_gui_font(void)
+{
+    if (g_win && g_screen_font)
+        SetFont(g_win->RPort, g_screen_font);
+    if (g_gui_font_opened && g_gui_font)
+        CloseFont(g_gui_font);
+    g_gui_font = g_screen_font;
+    g_gui_font_opened = 0;
+    if (DiskfontBase) {
+        CloseLibrary(DiskfontBase);
+        DiskfontBase = 0;
+    }
 }
 
 static void gui_rp(void)
@@ -1388,49 +1692,43 @@ static void add_current_to_addrbook(void)
 static void draw_connect_dialog(struct Window *win, int selected)
 {
     int i;
-    int max_rows;
     WORD y;
-    WORD button_y;
-
-    button_y = (WORD)(win->Height - 28);
-    if (button_y < 132)
-        button_y = 132;
-    max_rows = (button_y - MINI_IRC_CONNECT_LIST_Y - 4) / MINI_IRC_CONNECT_ROW_H;
-    if (max_rows < 0)
-        max_rows = 0;
 
     SetAPen(win->RPort, 0);
     RectFill(win->RPort, 0, 0, win->Width - 1, win->Height - 1);
     SetAPen(win->RPort, 1);
     SetBPen(win->RPort, 0);
     SetDrMd(win->RPort, JAM2);
-    Move(win->RPort, 12, 26);
-    Text(win->RPort, (STRPTR)"Host", 4);
-    Move(win->RPort, 12, 54);
-    Text(win->RPort, (STRPTR)"Port", 4);
-    Move(win->RPort, 156, 54);
-    Text(win->RPort, (STRPTR)"Nick", 4);
-    Move(win->RPort, 12, 84);
+    if (g_gui_font)
+        SetFont(win->RPort, g_gui_font);
+    Move(win->RPort, MINI_IRC_CONNECT_LIST_X, 20);
     Text(win->RPort, (STRPTR)"Address book", 12);
-    for (i = 0; i < g_addr_count && i < max_rows; ++i) {
-        y = (WORD)(MINI_IRC_CONNECT_LIST_Y + i * MINI_IRC_CONNECT_ROW_H);
+    Move(win->RPort, 196, 40);
+    Text(win->RPort, (STRPTR)"Host", 4);
+    Move(win->RPort, 196, 64);
+    Text(win->RPort, (STRPTR)"Port", 4);
+    Move(win->RPort, 196, 88);
+    Text(win->RPort, (STRPTR)"Nick", 4);
+    for (i = 0; i < g_addr_count && i < MINI_IRC_CONNECT_VISIBLE; ++i) {
+        y = (WORD)(MINI_IRC_CONNECT_LIST_Y + 10 + i * MINI_IRC_CONNECT_ROW_H);
         if (i == selected) {
             SetAPen(win->RPort, 1);
-            RectFill(win->RPort, 10, y - 9, win->Width - 12, y + 2);
+            RectFill(win->RPort, MINI_IRC_CONNECT_LIST_X, (WORD)(y - 8),
+                     (WORD)(MINI_IRC_CONNECT_LIST_X + MINI_IRC_CONNECT_LIST_W - 1),
+                     (WORD)(y + 1));
             SetAPen(win->RPort, 0);
         } else {
             SetAPen(win->RPort, 1);
         }
-        Move(win->RPort, 14, y);
+        Move(win->RPort, (WORD)(MINI_IRC_CONNECT_LIST_X + 3), y);
         Text(win->RPort, (STRPTR)g_addrs[i].host, text_len(g_addrs[i].host));
-        Move(win->RPort, 164, y);
-        Text(win->RPort, (STRPTR)g_addrs[i].port, text_len(g_addrs[i].port));
-        Move(win->RPort, 218, y);
-        Text(win->RPort, (STRPTR)g_addrs[i].nick, text_len(g_addrs[i].nick));
     }
-    draw_button_window(win, 12, button_y, 70, 18, "Connect");
-    draw_button_window(win, 92, button_y, 58, 18, "Save");
-    draw_button_window(win, 160, button_y, 64, 18, "Cancel");
+    SetAPen(win->RPort, 1);
+    draw_button_window(win, 12, MINI_IRC_CONNECT_BUTTON_Y, 46, 14, "Up");
+    draw_button_window(win, 68, MINI_IRC_CONNECT_BUTTON_Y, 46, 14, "Down");
+    draw_button_window(win, 126, MINI_IRC_CONNECT_BUTTON_Y, 70, 14, "Connect");
+    draw_button_window(win, 208, MINI_IRC_CONNECT_BUTTON_Y, 52, 14, "Save");
+    draw_button_window(win, 270, MINI_IRC_CONNECT_BUTTON_Y, 62, 14, "Cancel");
 }
 
 static void open_connect_dialog(void)
@@ -1476,63 +1774,55 @@ static void open_connect_dialog(void)
     memset(&save_gad, 0, sizeof(save_gad));
     memset(&cancel_gad, 0, sizeof(cancel_gad));
     host_gad.NextGadget = &port_gad;
-    host_gad.LeftEdge = 52;
-    host_gad.TopEdge = 14;
-    host_gad.Width = 232;
-    host_gad.Height = 16;
+    host_gad.LeftEdge = MINI_IRC_CONNECT_HOST_X;
+    host_gad.TopEdge = MINI_IRC_CONNECT_HOST_Y;
+    host_gad.Width = MINI_IRC_CONNECT_HOST_W;
+    host_gad.Height = MINI_IRC_CONNECT_STRING_H;
     host_gad.Activation = GACT_RELVERIFY;
     host_gad.GadgetType = GTYP_STRGADGET;
     host_gad.SpecialInfo = &host_si;
     host_gad.GadgetID = MINI_IRC_CGID_HOST;
     port_gad.NextGadget = &nick_gad;
-    port_gad.LeftEdge = 52;
-    port_gad.TopEdge = 42;
-    port_gad.Width = 78;
-    port_gad.Height = 16;
+    port_gad.LeftEdge = MINI_IRC_CONNECT_PORT_X;
+    port_gad.TopEdge = MINI_IRC_CONNECT_PORT_Y;
+    port_gad.Width = MINI_IRC_CONNECT_PORT_W;
+    port_gad.Height = MINI_IRC_CONNECT_STRING_H;
     port_gad.Activation = GACT_RELVERIFY;
     port_gad.GadgetType = GTYP_STRGADGET;
     port_gad.SpecialInfo = &port_si;
     port_gad.GadgetID = MINI_IRC_CGID_PORT;
     nick_gad.NextGadget = &connect_gad;
-    nick_gad.LeftEdge = 198;
-    nick_gad.TopEdge = 42;
-    nick_gad.Width = 86;
-    nick_gad.Height = 16;
+    nick_gad.LeftEdge = MINI_IRC_CONNECT_NICK_X;
+    nick_gad.TopEdge = MINI_IRC_CONNECT_NICK_Y;
+    nick_gad.Width = MINI_IRC_CONNECT_NICK_W;
+    nick_gad.Height = MINI_IRC_CONNECT_STRING_H;
     nick_gad.Activation = GACT_RELVERIFY;
     nick_gad.GadgetType = GTYP_STRGADGET;
     nick_gad.SpecialInfo = &nick_si;
     nick_gad.GadgetID = MINI_IRC_CGID_NICK;
     connect_gad.NextGadget = &save_gad;
-    button_y = MINI_IRC_CONNECT_WIN_H - 28;
-    if (g_screen) {
-        win_h = (WORD)(g_screen->Height - 20);
-        if (win_h > MINI_IRC_CONNECT_WIN_H)
-            win_h = MINI_IRC_CONNECT_WIN_H;
-        if (win_h < MINI_IRC_CONNECT_WIN_MIN_H)
-            win_h = MINI_IRC_CONNECT_WIN_MIN_H;
-        button_y = (WORD)(win_h - 28);
-    }
-    connect_gad.LeftEdge = 12;
+    button_y = MINI_IRC_CONNECT_BUTTON_Y;
+    connect_gad.LeftEdge = 126;
     connect_gad.TopEdge = button_y;
     connect_gad.Width = 70;
-    connect_gad.Height = 18;
+    connect_gad.Height = 14;
     connect_gad.Flags = GFLG_GADGHCOMP;
     connect_gad.Activation = GACT_RELVERIFY;
     connect_gad.GadgetType = GTYP_BOOLGADGET;
     connect_gad.GadgetID = MINI_IRC_CGID_CONNECT;
     save_gad.NextGadget = &cancel_gad;
-    save_gad.LeftEdge = 92;
+    save_gad.LeftEdge = 208;
     save_gad.TopEdge = button_y;
-    save_gad.Width = 58;
-    save_gad.Height = 18;
+    save_gad.Width = 52;
+    save_gad.Height = 14;
     save_gad.Flags = GFLG_GADGHCOMP;
     save_gad.Activation = GACT_RELVERIFY;
     save_gad.GadgetType = GTYP_BOOLGADGET;
     save_gad.GadgetID = MINI_IRC_CGID_SAVE;
-    cancel_gad.LeftEdge = 160;
+    cancel_gad.LeftEdge = 270;
     cancel_gad.TopEdge = button_y;
-    cancel_gad.Width = 64;
-    cancel_gad.Height = 18;
+    cancel_gad.Width = 62;
+    cancel_gad.Height = 14;
     cancel_gad.Flags = GFLG_GADGHCOMP;
     cancel_gad.Activation = GACT_RELVERIFY;
     cancel_gad.GadgetType = GTYP_BOOLGADGET;
@@ -1544,11 +1834,6 @@ static void open_connect_dialog(void)
     if (g_screen) {
         if (g_screen->Width < win_w)
             win_w = g_screen->Width;
-        win_h = (WORD)(g_screen->Height - 20);
-        if (win_h > MINI_IRC_CONNECT_WIN_H)
-            win_h = MINI_IRC_CONNECT_WIN_H;
-        if (win_h < MINI_IRC_CONNECT_WIN_MIN_H)
-            win_h = MINI_IRC_CONNECT_WIN_MIN_H;
         nw.LeftEdge = (WORD)((g_screen->Width - win_w) / 2);
         nw.TopEdge = (WORD)((g_screen->Height - win_h) / 2);
         if (nw.LeftEdge < 0)
@@ -1600,10 +1885,8 @@ static void open_connect_dialog(void)
             } else if (cls == IDCMP_MOUSEBUTTONS && code == SELECTDOWN) {
                 WORD mx = win->MouseX;
                 WORD my = win->MouseY;
-                button_y = (WORD)(win->Height - 28);
-                if (button_y < 132)
-                    button_y = 132;
-                if (my >= MINI_IRC_CONNECT_LIST_Y && my < button_y - 4) {
+                if (my >= MINI_IRC_CONNECT_LIST_Y &&
+                    my < MINI_IRC_CONNECT_LIST_Y + MINI_IRC_CONNECT_VISIBLE * MINI_IRC_CONNECT_ROW_H) {
                     selected = (my - MINI_IRC_CONNECT_LIST_Y) / MINI_IRC_CONNECT_ROW_H;
                     if (selected >= 0 && selected < g_addr_count) {
                         copy_text(g_host_buf, sizeof(g_host_buf), g_addrs[selected].host);
@@ -1624,6 +1907,214 @@ static void open_connect_dialog(void)
                     RefreshGList(&host_gad, win, 0, 3);
                 } else if (gad->GadgetID == MINI_IRC_CGID_CANCEL) {
                     done = 1;
+                }
+            }
+        }
+    }
+    CloseWindow(win);
+    redraw_all();
+}
+
+
+static void draw_font_selector(struct Window *win)
+{
+    UWORD row;
+    UWORD idx;
+    WORD y;
+    char line[MINI_IRC_FONT_NAME_MAX + 3];
+    char num[8];
+    int i;
+    int j;
+
+    SetAPen(win->RPort, 0);
+    RectFill(win->RPort, 0, 0, win->Width - 1, win->Height - 1);
+    SetAPen(win->RPort, 1);
+    SetBPen(win->RPort, 0);
+    SetDrMd(win->RPort, JAM2);
+    if (g_gui_font)
+        SetFont(win->RPort, g_gui_font);
+    Move(win->RPort, MINI_IRC_FONT_LIST_X, 18);
+    Text(win->RPort, (STRPTR)"Font", 4);
+    Move(win->RPort, MINI_IRC_FONT_SIZE_X, 18);
+    Text(win->RPort, (STRPTR)"Size", 4);
+    Move(win->RPort, MINI_IRC_FONT_LIST_X, MINI_IRC_FONT_LIST_Y);
+    Draw(win->RPort, MINI_IRC_FONT_LIST_X + MINI_IRC_FONT_LIST_W, MINI_IRC_FONT_LIST_Y);
+    Draw(win->RPort, MINI_IRC_FONT_LIST_X + MINI_IRC_FONT_LIST_W, MINI_IRC_FONT_LIST_Y + MINI_IRC_FONT_LIST_H);
+    Draw(win->RPort, MINI_IRC_FONT_LIST_X, MINI_IRC_FONT_LIST_Y + MINI_IRC_FONT_LIST_H);
+    Draw(win->RPort, MINI_IRC_FONT_LIST_X, MINI_IRC_FONT_LIST_Y);
+    Move(win->RPort, MINI_IRC_FONT_SIZE_X, MINI_IRC_FONT_LIST_Y);
+    Draw(win->RPort, MINI_IRC_FONT_SIZE_X + MINI_IRC_FONT_SIZE_W, MINI_IRC_FONT_LIST_Y);
+    Draw(win->RPort, MINI_IRC_FONT_SIZE_X + MINI_IRC_FONT_SIZE_W, MINI_IRC_FONT_LIST_Y + MINI_IRC_FONT_LIST_H);
+    Draw(win->RPort, MINI_IRC_FONT_SIZE_X, MINI_IRC_FONT_LIST_Y + MINI_IRC_FONT_LIST_H);
+    Draw(win->RPort, MINI_IRC_FONT_SIZE_X, MINI_IRC_FONT_LIST_Y);
+    draw_button_window(win, 238, 48, 44, 14, "Up");
+    draw_button_window(win, 238, 68, 44, 14, "Down");
+    draw_button_window(win, 110, 150, 42, 14, "OK");
+    draw_button_window(win, 160, 150, 62, 14, "Cancel");
+
+    for (row = 0; row < MINI_IRC_FONT_VISIBLE; ++row) {
+        idx = (UWORD)(g_font_top + row);
+        if (idx >= g_font_count)
+            break;
+        line[0] = (idx == g_font_selected) ? '>' : ' ';
+        line[1] = ' ';
+        i = 2;
+        for (j = 0; g_font_names[idx][j] && i < (int)sizeof(line) - 1; ++j)
+            line[i++] = g_font_names[idx][j];
+        line[i] = 0;
+        y = (WORD)(MINI_IRC_FONT_LIST_Y + 10 + row * MINI_IRC_FONT_ROW_H);
+        Move(win->RPort, (WORD)(MINI_IRC_FONT_LIST_X + 3), y);
+        Text(win->RPort, (STRPTR)line, i);
+    }
+    if (g_font_count == 0) {
+        Move(win->RPort, (WORD)(MINI_IRC_FONT_LIST_X + 3), (WORD)(MINI_IRC_FONT_LIST_Y + 18));
+        Text(win->RPort, (STRPTR)"No .font files", 14);
+    }
+    for (row = 0; row < g_font_size_count && row < MINI_IRC_FONT_VISIBLE; ++row) {
+        line[0] = (row == g_font_size_selected) ? '>' : ' ';
+        line[1] = ' ';
+        number_to_text(g_font_sizes[row], num, sizeof(num));
+        i = 2;
+        for (j = 0; num[j] && i < (int)sizeof(line) - 1; ++j)
+            line[i++] = num[j];
+        line[i] = 0;
+        y = (WORD)(MINI_IRC_FONT_LIST_Y + 10 + row * MINI_IRC_FONT_ROW_H);
+        Move(win->RPort, (WORD)(MINI_IRC_FONT_SIZE_X + 3), y);
+        Text(win->RPort, (STRPTR)line, i);
+    }
+}
+
+static void open_font_selector(void)
+{
+    struct NewWindow nw;
+    struct Window *win;
+    struct IntuiMessage *msg;
+    ULONG cls;
+    UWORD code;
+    struct Gadget *gad;
+    WORD mx;
+    WORD my;
+    UWORD row;
+    int done = 0;
+    static struct Gadget up_gad;
+    static struct Gadget down_gad;
+    static struct Gadget ok_gad;
+    static struct Gadget cancel_gad;
+
+    scan_fonts();
+    scan_font_sizes();
+    memset(&up_gad, 0, sizeof(up_gad));
+    memset(&down_gad, 0, sizeof(down_gad));
+    memset(&ok_gad, 0, sizeof(ok_gad));
+    memset(&cancel_gad, 0, sizeof(cancel_gad));
+    up_gad.NextGadget = &down_gad;
+    up_gad.LeftEdge = 238;
+    up_gad.TopEdge = 48;
+    up_gad.Width = 44;
+    up_gad.Height = 14;
+    up_gad.Flags = GFLG_GADGHCOMP;
+    up_gad.Activation = GACT_RELVERIFY;
+    up_gad.GadgetType = GTYP_BOOLGADGET;
+    up_gad.GadgetID = 101;
+    down_gad.NextGadget = &ok_gad;
+    down_gad.LeftEdge = 238;
+    down_gad.TopEdge = 68;
+    down_gad.Width = 44;
+    down_gad.Height = 14;
+    down_gad.Flags = GFLG_GADGHCOMP;
+    down_gad.Activation = GACT_RELVERIFY;
+    down_gad.GadgetType = GTYP_BOOLGADGET;
+    down_gad.GadgetID = 102;
+    ok_gad.NextGadget = &cancel_gad;
+    ok_gad.LeftEdge = 110;
+    ok_gad.TopEdge = 150;
+    ok_gad.Width = 42;
+    ok_gad.Height = 14;
+    ok_gad.Flags = GFLG_GADGHCOMP;
+    ok_gad.Activation = GACT_RELVERIFY;
+    ok_gad.GadgetType = GTYP_BOOLGADGET;
+    ok_gad.GadgetID = 103;
+    cancel_gad.LeftEdge = 160;
+    cancel_gad.TopEdge = 150;
+    cancel_gad.Width = 62;
+    cancel_gad.Height = 14;
+    cancel_gad.Flags = GFLG_GADGHCOMP;
+    cancel_gad.Activation = GACT_RELVERIFY;
+    cancel_gad.GadgetType = GTYP_BOOLGADGET;
+    cancel_gad.GadgetID = 104;
+
+    memset(&nw, 0, sizeof(nw));
+    nw.LeftEdge = 90;
+    nw.TopEdge = 35;
+    nw.Width = MINI_IRC_FONT_WIN_W;
+    nw.Height = MINI_IRC_FONT_WIN_H;
+    nw.DetailPen = 1;
+    nw.BlockPen = 0;
+    nw.IDCMPFlags = IDCMP_CLOSEWINDOW | IDCMP_GADGETUP | IDCMP_MOUSEBUTTONS | IDCMP_REFRESHWINDOW;
+    nw.Flags = WFLG_CLOSEGADGET | WFLG_DRAGBAR | WFLG_SMART_REFRESH | WFLG_ACTIVATE;
+    nw.FirstGadget = &up_gad;
+    nw.Title = (STRPTR)"MiniIRC Font";
+    nw.Screen = g_screen;
+    nw.Type = CUSTOMSCREEN;
+    win = OpenWindow(&nw);
+    if (!win) {
+        status_text("Font window failed");
+        return;
+    }
+    if (g_gui_font)
+        SetFont(win->RPort, g_gui_font);
+    draw_font_selector(win);
+    while (!done) {
+        Wait(1L << win->UserPort->mp_SigBit);
+        while ((msg = (struct IntuiMessage *)GetMsg(win->UserPort)) != 0) {
+            cls = msg->Class;
+            code = msg->Code;
+            gad = (struct Gadget *)msg->IAddress;
+            mx = msg->MouseX;
+            my = msg->MouseY;
+            ReplyMsg((struct Message *)msg);
+            if (cls == IDCMP_CLOSEWINDOW) {
+                done = 1;
+            } else if (cls == IDCMP_REFRESHWINDOW) {
+                BeginRefresh(win);
+                draw_font_selector(win);
+                EndRefresh(win, TRUE);
+            } else if (cls == IDCMP_GADGETUP && gad) {
+                if (gad->GadgetID == 101) {
+                    if (g_font_top > 0)
+                        --g_font_top;
+                    draw_font_selector(win);
+                } else if (gad->GadgetID == 102) {
+                    if ((ULONG)g_font_top + MINI_IRC_FONT_VISIBLE < g_font_count)
+                        ++g_font_top;
+                    draw_font_selector(win);
+                } else if (gad->GadgetID == 103) {
+                    if (g_font_count && g_font_size_count) {
+                        if (apply_gui_font(g_font_names[g_font_selected], g_font_sizes[g_font_size_selected]))
+                            status_text("Font changed");
+                        else
+                            status_text("Font not available");
+                    }
+                    done = 1;
+                } else if (gad->GadgetID == 104) {
+                    done = 1;
+                }
+            } else if (cls == IDCMP_MOUSEBUTTONS && code == SELECTDOWN) {
+                if (mx >= MINI_IRC_FONT_LIST_X && mx < MINI_IRC_FONT_LIST_X + MINI_IRC_FONT_LIST_W &&
+                    my >= MINI_IRC_FONT_LIST_Y && my < MINI_IRC_FONT_LIST_Y + MINI_IRC_FONT_LIST_H) {
+                    row = (UWORD)((my - MINI_IRC_FONT_LIST_Y) / MINI_IRC_FONT_ROW_H);
+                    if ((ULONG)g_font_top + row < g_font_count) {
+                        g_font_selected = (UWORD)(g_font_top + row);
+                        scan_font_sizes();
+                        draw_font_selector(win);
+                    }
+                } else if (mx >= MINI_IRC_FONT_SIZE_X && mx < MINI_IRC_FONT_SIZE_X + MINI_IRC_FONT_SIZE_W &&
+                    my >= MINI_IRC_FONT_LIST_Y && my < MINI_IRC_FONT_LIST_Y + MINI_IRC_FONT_LIST_H) {
+                    row = (UWORD)((my - MINI_IRC_FONT_LIST_Y) / MINI_IRC_FONT_ROW_H);
+                    if (row < g_font_size_count) {
+                        g_font_size_selected = row;
+                        draw_font_selector(win);
+                    }
                 }
             }
         }
@@ -1653,6 +2144,7 @@ static void setup_menu(void)
     setup_menu_text(&g_project_text[1], "Disconnect");
     setup_menu_text(&g_project_text[2], "Quit");
     setup_menu_text(&g_settings_text[0], "Address Book...");
+    setup_menu_text(&g_settings_text[1], "Font...");
 
     g_menus[0].NextMenu = &g_menus[1];
     g_menus[0].LeftEdge = 0;
@@ -1675,23 +2167,29 @@ static void setup_menu(void)
     g_project_items[0].ItemFill = &g_project_text[0];
     g_project_items[1].ItemFill = &g_project_text[1];
     g_project_items[2].ItemFill = &g_project_text[2];
+    g_settings_items[0].NextItem = &g_settings_items[1];
     g_settings_items[0].ItemFill = &g_settings_text[0];
+    g_settings_items[1].ItemFill = &g_settings_text[1];
     g_project_items[0].TopEdge = 0;
     g_project_items[1].TopEdge = 10;
     g_project_items[2].TopEdge = 20;
     g_settings_items[0].TopEdge = 0;
+    g_settings_items[1].TopEdge = 10;
     g_project_items[0].Width = 92;
     g_project_items[1].Width = 92;
     g_project_items[2].Width = 92;
     g_settings_items[0].Width = 132;
+    g_settings_items[1].Width = 132;
     g_project_items[0].Height = 10;
     g_project_items[1].Height = 10;
     g_project_items[2].Height = 10;
     g_settings_items[0].Height = 10;
+    g_settings_items[1].Height = 10;
     g_project_items[0].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
     g_project_items[1].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
     g_project_items[2].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
     g_settings_items[0].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
+    g_settings_items[1].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
 }
 
 static void update_main_gadget_positions(void);
@@ -1776,6 +2274,8 @@ static void handle_menu(UWORD code)
     } else if (menu == 1) {
         if (item == 0)
             open_connect_dialog();
+        else if (item == 1)
+            open_font_selector();
     }
 }
 
@@ -1860,12 +2360,9 @@ static int open_main_window(void)
         }
         return 0;
     }
-    g_gui_font = g_win->RPort->Font;
-    if (g_gui_font) {
-        g_char_w = g_gui_font->tf_XSize;
-        g_char_h = g_gui_font->tf_YSize;
-        g_baseline = g_gui_font->tf_Baseline;
-    }
+    g_screen_font = g_win->RPort->Font;
+    g_gui_font = g_screen_font;
+    install_default_font();
     layout_window();
     setup_main_gadgets();
     AddGList(g_win, &g_join_gadget, -1, 4, 0);
@@ -1881,6 +2378,7 @@ static void close_main_window(void)
         return;
     ClearMenuStrip(g_win);
     RemoveGList(g_win, &g_join_gadget, 4);
+    close_gui_font();
     CloseWindow(g_win);
     g_win = 0;
     if (g_screen) {
