@@ -68,7 +68,7 @@ replies and updated for basic JOIN/PART/QUIT events.
 
 MiniIRC stores address entries in the startup/current directory using the
 existing MiniIRC address-book file format. Entries contain server, port, and
-nickname data.
+nickname data. The Connect requester can save and delete address-book entries.
 
 ## Notes
 

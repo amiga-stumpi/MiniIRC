@@ -45,13 +45,13 @@
 #define MINI_IRC_CONNECT_LIST_W 170
 #define MINI_IRC_CONNECT_ROW_H 10
 #define MINI_IRC_CONNECT_VISIBLE 8
-#define MINI_IRC_CONNECT_HOST_X 236
+#define MINI_IRC_CONNECT_HOST_X 246
 #define MINI_IRC_CONNECT_HOST_Y 30
 #define MINI_IRC_CONNECT_HOST_W 170
-#define MINI_IRC_CONNECT_PORT_X 236
+#define MINI_IRC_CONNECT_PORT_X 246
 #define MINI_IRC_CONNECT_PORT_Y 54
 #define MINI_IRC_CONNECT_PORT_W 60
-#define MINI_IRC_CONNECT_NICK_X 236
+#define MINI_IRC_CONNECT_NICK_X 246
 #define MINI_IRC_CONNECT_NICK_Y 78
 #define MINI_IRC_CONNECT_NICK_W 110
 #define MINI_IRC_CONNECT_STRING_H 12
@@ -80,7 +80,8 @@
 #define MINI_IRC_CGID_NICK    22
 #define MINI_IRC_CGID_CONNECT 23
 #define MINI_IRC_CGID_SAVE    24
-#define MINI_IRC_CGID_CANCEL  25
+#define MINI_IRC_CGID_DELETE  25
+#define MINI_IRC_CGID_CANCEL  26
 
 #define SOL_SOCKET AMITCP13_SOL_SOCKET
 #define SO_ERROR   AMITCP13_SO_ERROR
@@ -1722,6 +1723,18 @@ static void draw_button_window(struct Window *win,
     Text(win->RPort, (STRPTR)label, text_len(label));
 }
 
+static void draw_field_box_window(struct Window *win, WORD x, WORD y, WORD w, WORD h)
+{
+    SetAPen(win->RPort, 1);
+    SetBPen(win->RPort, 0);
+    SetDrMd(win->RPort, JAM1);
+    Move(win->RPort, x, y);
+    Draw(win->RPort, (WORD)(x + w), y);
+    Draw(win->RPort, (WORD)(x + w), (WORD)(y + h));
+    Draw(win->RPort, x, (WORD)(y + h));
+    Draw(win->RPort, x, y);
+}
+
 static void draw_field_box(WORD x, WORD y, WORD w, WORD h)
 {
     SetAPen(g_win->RPort, 1);
@@ -1840,6 +1853,32 @@ static void add_current_to_addrbook(void)
     save_addrbook();
 }
 
+static void delete_addrbook_entry(int *selected)
+{
+    int i;
+    int idx;
+
+    if (!selected)
+        return;
+    idx = *selected;
+    if (idx < 0 || idx >= g_addr_count)
+        return;
+
+    for (i = idx; i + 1 < g_addr_count; ++i)
+        g_addrs[i] = g_addrs[i + 1];
+    --g_addr_count;
+
+    if (idx >= g_addr_count)
+        idx = g_addr_count - 1;
+    *selected = idx;
+    if (idx >= 0) {
+        copy_text(g_host_buf, sizeof(g_host_buf), g_addrs[idx].host);
+        copy_text(g_port_buf, sizeof(g_port_buf), g_addrs[idx].port);
+        copy_text(g_nick_buf, sizeof(g_nick_buf), g_addrs[idx].nick);
+    }
+    save_addrbook();
+}
+
 static void draw_connect_dialog(struct Window *win, int selected)
 {
     int i;
@@ -1854,17 +1893,32 @@ static void draw_connect_dialog(struct Window *win, int selected)
         SetFont(win->RPort, g_gui_font);
     Move(win->RPort, MINI_IRC_CONNECT_LIST_X, 20);
     Text(win->RPort, (STRPTR)"Address book", 12);
-    Move(win->RPort, 196, 40);
+    draw_field_box_window(win, MINI_IRC_CONNECT_LIST_X, MINI_IRC_CONNECT_LIST_Y,
+                          MINI_IRC_CONNECT_LIST_W,
+                          (WORD)(MINI_IRC_CONNECT_VISIBLE * MINI_IRC_CONNECT_ROW_H + 4));
+    Move(win->RPort, 198, (WORD)(MINI_IRC_CONNECT_HOST_Y + g_baseline + 4));
     Text(win->RPort, (STRPTR)"Host", 4);
-    Move(win->RPort, 196, 64);
+    Move(win->RPort, 198, (WORD)(MINI_IRC_CONNECT_PORT_Y + g_baseline + 4));
     Text(win->RPort, (STRPTR)"Port", 4);
-    Move(win->RPort, 196, 88);
+    Move(win->RPort, 198, (WORD)(MINI_IRC_CONNECT_NICK_Y + g_baseline + 4));
     Text(win->RPort, (STRPTR)"Nick", 4);
+    draw_field_box_window(win, (WORD)(MINI_IRC_CONNECT_HOST_X - 2),
+                          (WORD)(MINI_IRC_CONNECT_HOST_Y - 3),
+                          (WORD)(MINI_IRC_CONNECT_HOST_W + 4),
+                          (WORD)(MINI_IRC_CONNECT_STRING_H + 5));
+    draw_field_box_window(win, (WORD)(MINI_IRC_CONNECT_PORT_X - 2),
+                          (WORD)(MINI_IRC_CONNECT_PORT_Y - 3),
+                          (WORD)(MINI_IRC_CONNECT_PORT_W + 4),
+                          (WORD)(MINI_IRC_CONNECT_STRING_H + 5));
+    draw_field_box_window(win, (WORD)(MINI_IRC_CONNECT_NICK_X - 2),
+                          (WORD)(MINI_IRC_CONNECT_NICK_Y - 3),
+                          (WORD)(MINI_IRC_CONNECT_NICK_W + 4),
+                          (WORD)(MINI_IRC_CONNECT_STRING_H + 5));
     for (i = 0; i < g_addr_count && i < MINI_IRC_CONNECT_VISIBLE; ++i) {
         y = (WORD)(MINI_IRC_CONNECT_LIST_Y + 10 + i * MINI_IRC_CONNECT_ROW_H);
         if (i == selected) {
             SetAPen(win->RPort, 1);
-            RectFill(win->RPort, MINI_IRC_CONNECT_LIST_X, (WORD)(y - 8),
+            RectFill(win->RPort, (WORD)(MINI_IRC_CONNECT_LIST_X + 1), (WORD)(y - 8),
                      (WORD)(MINI_IRC_CONNECT_LIST_X + MINI_IRC_CONNECT_LIST_W - 1),
                      (WORD)(y + 1));
             SetAPen(win->RPort, 0);
@@ -1877,9 +1931,10 @@ static void draw_connect_dialog(struct Window *win, int selected)
     SetAPen(win->RPort, 1);
     draw_button_window(win, 12, MINI_IRC_CONNECT_BUTTON_Y, 46, 14, "Up");
     draw_button_window(win, 68, MINI_IRC_CONNECT_BUTTON_Y, 46, 14, "Down");
-    draw_button_window(win, 126, MINI_IRC_CONNECT_BUTTON_Y, 70, 14, "Connect");
-    draw_button_window(win, 208, MINI_IRC_CONNECT_BUTTON_Y, 52, 14, "Save");
-    draw_button_window(win, 270, MINI_IRC_CONNECT_BUTTON_Y, 62, 14, "Cancel");
+    draw_button_window(win, 120, MINI_IRC_CONNECT_BUTTON_Y, 70, 14, "Connect");
+    draw_button_window(win, 198, MINI_IRC_CONNECT_BUTTON_Y, 48, 14, "Save");
+    draw_button_window(win, 254, MINI_IRC_CONNECT_BUTTON_Y, 58, 14, "Delete");
+    draw_button_window(win, 320, MINI_IRC_CONNECT_BUTTON_Y, 62, 14, "Cancel");
 }
 
 static void open_connect_dialog(void)
@@ -1900,6 +1955,7 @@ static void open_connect_dialog(void)
     static struct Gadget nick_gad;
     static struct Gadget connect_gad;
     static struct Gadget save_gad;
+    static struct Gadget delete_gad;
     static struct Gadget cancel_gad;
     WORD win_w;
     WORD win_h;
@@ -1923,6 +1979,7 @@ static void open_connect_dialog(void)
     memset(&nick_gad, 0, sizeof(nick_gad));
     memset(&connect_gad, 0, sizeof(connect_gad));
     memset(&save_gad, 0, sizeof(save_gad));
+    memset(&delete_gad, 0, sizeof(delete_gad));
     memset(&cancel_gad, 0, sizeof(cancel_gad));
     host_gad.NextGadget = &port_gad;
     host_gad.LeftEdge = MINI_IRC_CONNECT_HOST_X;
@@ -1953,7 +2010,7 @@ static void open_connect_dialog(void)
     nick_gad.GadgetID = MINI_IRC_CGID_NICK;
     connect_gad.NextGadget = &save_gad;
     button_y = MINI_IRC_CONNECT_BUTTON_Y;
-    connect_gad.LeftEdge = 126;
+    connect_gad.LeftEdge = 120;
     connect_gad.TopEdge = button_y;
     connect_gad.Width = 70;
     connect_gad.Height = 14;
@@ -1961,16 +2018,25 @@ static void open_connect_dialog(void)
     connect_gad.Activation = GACT_RELVERIFY;
     connect_gad.GadgetType = GTYP_BOOLGADGET;
     connect_gad.GadgetID = MINI_IRC_CGID_CONNECT;
-    save_gad.NextGadget = &cancel_gad;
-    save_gad.LeftEdge = 208;
+    save_gad.NextGadget = &delete_gad;
+    save_gad.LeftEdge = 198;
     save_gad.TopEdge = button_y;
-    save_gad.Width = 52;
+    save_gad.Width = 48;
     save_gad.Height = 14;
     save_gad.Flags = GFLG_GADGHCOMP;
     save_gad.Activation = GACT_RELVERIFY;
     save_gad.GadgetType = GTYP_BOOLGADGET;
     save_gad.GadgetID = MINI_IRC_CGID_SAVE;
-    cancel_gad.LeftEdge = 270;
+    delete_gad.NextGadget = &cancel_gad;
+    delete_gad.LeftEdge = 254;
+    delete_gad.TopEdge = button_y;
+    delete_gad.Width = 58;
+    delete_gad.Height = 14;
+    delete_gad.Flags = GFLG_GADGHCOMP;
+    delete_gad.Activation = GACT_RELVERIFY;
+    delete_gad.GadgetType = GTYP_BOOLGADGET;
+    delete_gad.GadgetID = MINI_IRC_CGID_DELETE;
+    cancel_gad.LeftEdge = 320;
     cancel_gad.TopEdge = button_y;
     cancel_gad.Width = 62;
     cancel_gad.Height = 14;
@@ -2054,6 +2120,10 @@ static void open_connect_dialog(void)
                     connect_irc();
                 } else if (gad->GadgetID == MINI_IRC_CGID_SAVE) {
                     add_current_to_addrbook();
+                    draw_connect_dialog(win, selected);
+                    RefreshGList(&host_gad, win, 0, 3);
+                } else if (gad->GadgetID == MINI_IRC_CGID_DELETE) {
+                    delete_addrbook_entry(&selected);
                     draw_connect_dialog(win, selected);
                     RefreshGList(&host_gad, win, 0, 3);
                 } else if (gad->GadgetID == MINI_IRC_CGID_CANCEL) {

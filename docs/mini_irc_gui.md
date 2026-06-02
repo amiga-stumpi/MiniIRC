@@ -31,7 +31,7 @@ Each line uses:
 host|port|nick
 ```
 
-The requester can save the current host, port, and nick. The first saved entry
+The requester can save the current host, port, and nick. The Delete button removes the selected address-book entry and rewrites the file. The first saved entry
 is loaded as the startup default.
 
 ## Channel Tabs
