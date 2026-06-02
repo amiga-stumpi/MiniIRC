@@ -1289,28 +1289,9 @@ static void reset_channel_tabs(void)
     g_leave_h = 0;
 }
 
-static void part_open_channels(void)
-{
-    int i;
-    int pos;
-
-    if (!g_gui.connected)
-        return;
-    for (i = 1; i < g_tab_count; ++i) {
-        pos = 0;
-        g_send_buf[0] = 0;
-        if (!append_text(g_send_buf, &pos, sizeof(g_send_buf), "PART "))
-            continue;
-        if (!append_text(g_send_buf, &pos, sizeof(g_send_buf), g_tabs[i].name))
-            continue;
-        mini_irc_session_send_line(&g_gui.session, g_send_buf);
-    }
-}
-
 static void disconnect_irc(const char *reason)
 {
     debug_log("DISCONNECT", reason ? reason : "Disconnected");
-    part_open_channels();
     if (g_gui.connected)
         mini_irc_session_send_line(&g_gui.session, MINI_IRC_QUIT_MESSAGE);
     if (g_gui.fd >= 0 && g_gui.socket_base)
