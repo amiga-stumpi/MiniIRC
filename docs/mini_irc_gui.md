@@ -49,6 +49,11 @@ omitted.
 Select a channel tab, type a message in the message field, and press `Send`.
 Messages cannot be sent from the `Status` tab.
 
+The connect requester has a Nick field. While connected, type `/nick newname`
+in the message field to send the normal IRC `NICK` command. MiniIRC updates the
+local nick when the command is sent and also follows server `NICK` messages in
+the channel user lists.
+
 ## Font
 
 Use `Settings -> Font...` to scan `FONTS:` and select a font and available
@@ -101,6 +106,6 @@ This first GUI version is intentionally small:
 The implementation uses plain Intuition gadgets and menus only; no GadTools,
 MUI, ReAction, ASL, or OS2+ APIs are required.
 
-## MiniIRC v0.4 Layout
+## MiniIRC v0.5 Layout
 
 MiniIRC now opens on its own black-background AmigaOS 1.3 custom screen. It chooses 2, 3, or 4 bitplanes based on available Chip RAM and now prefers 4 bitplanes more aggressively when enough memory is available. The main window uses a KVIrc-style split layout: channels are listed on the left, the active channel output is in the center, the active channel user list is on the right, and separate Channel/Join and Text/Send input rows are fixed at the bottom with visible field frames. Selecting a channel in the left list changes the active view. The active channel row contains a Leave button that sends PART and removes the channel tab. The user list is populated from IRC NAMES replies and updated on basic JOIN/PART/QUIT events.

@@ -7,7 +7,7 @@ to the network through `bsdsocket.library`.
 Version:
 
 ```text
-MiniIRC v0.4 by Marcel Jaehne (c)2026
+MiniIRC v0.5 by Marcel Jaehne (c)2026
 ```
 
 ## Requirements
@@ -44,7 +44,8 @@ MiniIRC no longer includes a Shell/CLI client; the project is GUI-only.
 ## Usage
 
 Start `MiniIRC` from Shell or Workbench. The client opens its own screen. Use
-the menu entry `Project -> Connect` to open the connect/address-book window.
+the menu entry `Project -> Connect` to open the connect/address-book window
+with server, port, and nick fields.
 
 The main screen layout is:
 
@@ -52,6 +53,9 @@ The main screen layout is:
 - center: active channel output
 - right side: user list for the active channel
 - bottom: join field and message input field
+
+Use `/nick newname` in the message input field to request a nick change on the
+current IRC server.
 
 Use `Settings -> Font...` to select a runtime font from `FONTS:`. MiniIRC
 tries `IBM.font/8`, `ibm.font/8`, `ruby.font/8`, and then `topaz.font/11`

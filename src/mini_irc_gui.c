@@ -15,7 +15,7 @@
 #include "amitcp13/bsdsocket.h"
 #include "amitcp13/tools/mini_irc_session.h"
 
-#define MINI_IRC_GUI_TITLE "MiniIRC v0.4 by Marcel Jaehne (c)2026"
+#define MINI_IRC_GUI_TITLE "MiniIRC v0.5 by Marcel Jaehne (c)2026"
 #define MINI_IRC_ADDRBOOK_PATH "mini_irc.addr"
 #define MINI_IRC_DEBUG_LOG_PATH "MiniIRC-debug.log"
 
@@ -53,7 +53,7 @@
 #define MINI_IRC_CONNECT_PORT_W 60
 #define MINI_IRC_CONNECT_NICK_X 246
 #define MINI_IRC_CONNECT_NICK_Y 78
-#define MINI_IRC_CONNECT_NICK_W 110
+#define MINI_IRC_CONNECT_NICK_W 170
 #define MINI_IRC_CONNECT_STRING_H 12
 #define MINI_IRC_CONNECT_BUTTON_Y 118
 #define MINI_IRC_FONT_NAME_MAX 64
@@ -353,6 +353,13 @@ static int text_equal_ci(const char *a, const char *b)
         ++b;
     }
     return *a == 0 && *b == 0;
+}
+
+static char upper_ascii(char c)
+{
+    if (c >= 'a' && c <= 'z')
+        return (char)(c - 32);
+    return c;
 }
 
 static const char *skip_spaces(const char *p)
@@ -860,6 +867,14 @@ static void tab_user_remove(int tab_idx, const char *nick)
             return;
         }
     }
+}
+
+static void tab_user_rename(int tab_idx, const char *old_nick, const char *new_nick)
+{
+    if (!old_nick || !old_nick[0] || !new_nick || !new_nick[0])
+        return;
+    tab_user_remove(tab_idx, old_nick);
+    tab_user_add(tab_idx, new_nick);
 }
 
 static void tab_users_clear(int tab_idx)
@@ -1557,6 +1572,20 @@ static void route_line_to_tab(const char *line)
         for (idx = 0; idx < g_tab_count; ++idx)
             tab_user_remove(idx, nick);
         draw_user_list();
+    } else if (cmd[0] == 'N' && cmd[1] == 'I' && cmd[2] == 'C' && cmd[3] == 'K') {
+        copy_text(chan, sizeof(chan), target);
+        if (chan[0] == ':')
+            memmove(chan, chan + 1, text_len(chan));
+        trim_text(chan);
+        if (chan[0]) {
+            for (idx = 0; idx < g_tab_count; ++idx)
+                tab_user_rename(idx, nick, chan);
+            if (text_equal_ci(nick, g_nick_buf)) {
+                copy_text(g_nick_buf, sizeof(g_nick_buf), chan);
+                mini_irc_session_set_nick(&g_gui.session, g_nick_buf);
+            }
+            draw_user_list();
+        }
     }
 
     tab_append(0, line);
@@ -1666,6 +1695,59 @@ static void join_channel(void)
     status_text("JOIN sent");
 }
 
+static void clear_message_input(void)
+{
+    g_msg_buf[0] = 0;
+    g_msg_si.BufferPos = 0;
+    g_msg_si.NumChars = 0;
+    RefreshGList(&g_msg_gadget, g_win, 0, 1);
+}
+
+static int is_nick_command(const char *text)
+{
+    if (!text || text[0] != '/')
+        return 0;
+    if (upper_ascii(text[1]) != 'N' || upper_ascii(text[2]) != 'I' ||
+        upper_ascii(text[3]) != 'C' || upper_ascii(text[4]) != 'K')
+        return 0;
+    return text[5] == 0 || text[5] == ' ' || text[5] == '\t';
+}
+
+static void send_nick_command(const char *line)
+{
+    const char *p;
+    char nick[MINI_IRC_NICK_SIZE];
+    int i;
+    int pos;
+
+    p = skip_spaces(line + 5);
+    i = 0;
+    while (p[i] && p[i] != ' ' && p[i] != '\t' &&
+           i < (int)sizeof(nick) - 1) {
+        nick[i] = p[i];
+        ++i;
+    }
+    nick[i] = 0;
+    if (!nick[0]) {
+        status_text("Usage: /nick name");
+        return;
+    }
+    pos = 0;
+    g_send_buf[0] = 0;
+    if (!append_text(g_send_buf, &pos, sizeof(g_send_buf), "NICK ") ||
+        !append_text(g_send_buf, &pos, sizeof(g_send_buf), nick) ||
+        !mini_irc_session_send_line(&g_gui.session, g_send_buf)) {
+        status_text("NICK failed");
+        return;
+    }
+    copy_text(g_nick_buf, sizeof(g_nick_buf), nick);
+    mini_irc_session_set_nick(&g_gui.session, g_nick_buf);
+    status_text("NICK sent");
+    tab_append(0, "NICK change requested");
+    if (g_active_tab == 0)
+        draw_output();
+}
+
 static void send_message(void)
 {
     const char *target;
@@ -1676,14 +1758,19 @@ static void send_message(void)
         status_text("Not connected");
         return;
     }
-    if (g_active_tab <= 0 || g_active_tab >= g_tab_count) {
-        status_text("Select channel tab");
-        return;
-    }
     copy_text(local, sizeof(local), g_msg_buf);
     trim_text(local);
     if (!local[0])
         return;
+    if (is_nick_command(local)) {
+        send_nick_command(local);
+        clear_message_input();
+        return;
+    }
+    if (g_active_tab <= 0 || g_active_tab >= g_tab_count) {
+        status_text("Select channel tab");
+        return;
+    }
     target = g_tabs[g_active_tab].name;
     if (!mini_irc_session_privmsg(&g_gui.session, target, local)) {
         status_text("Send failed");
@@ -1694,10 +1781,7 @@ static void send_message(void)
     append_text(g_send_buf, &pos, sizeof(g_send_buf), "> ");
     append_text(g_send_buf, &pos, sizeof(g_send_buf), local);
     tab_append(g_active_tab, g_send_buf);
-    g_msg_buf[0] = 0;
-    g_msg_si.BufferPos = 0;
-    g_msg_si.NumChars = 0;
-    RefreshGList(&g_msg_gadget, g_win, 0, 1);
+    clear_message_input();
     draw_output();
 }
 
