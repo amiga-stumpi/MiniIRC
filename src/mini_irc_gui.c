@@ -528,14 +528,22 @@ static int ends_with_font(const char *name)
     return text_equal_ci(name + len - 5, ".font");
 }
 
-static void copy_font_entry(char *dst, const char *src)
-{
-    copy_text(dst, MINI_IRC_FONT_NAME_MAX, src);
-}
-
 static void copy_font_name(char *dst, int max_len, const char *src)
 {
     copy_text(dst, max_len, src ? src : "");
+}
+
+static int font_name_has_path(const char *name)
+{
+    int i;
+
+    if (!name)
+        return 0;
+    for (i = 0; name[i]; ++i) {
+        if (name[i] == '/' || name[i] == ':')
+            return 1;
+    }
+    return 0;
 }
 
 static int parse_numeric_name(const char *name, UWORD *out)
@@ -585,7 +593,8 @@ static void make_font_size_path(const char *font_name, char *path, int path_size
 
     strip_font_suffix(font_name, base, sizeof(base));
     path[0] = 0;
-    append_text(path, &pos, path_size, "FONTS:");
+    if (!font_name_has_path(font_name))
+        append_text(path, &pos, path_size, "FONTS:");
     append_text(path, &pos, path_size, base);
 }
 
@@ -601,9 +610,40 @@ static void add_font_size(UWORD size)
         g_font_sizes[g_font_size_count++] = size;
 }
 
-static void scan_fonts(void)
+static void add_scanned_font(const char *prefix, const char *name)
+{
+    int pos;
+
+    if (g_font_count >= MINI_IRC_FONT_MAX || !name || !ends_with_font(name))
+        return;
+    pos = 0;
+    g_font_names[g_font_count][0] = 0;
+    if (prefix)
+        append_text(g_font_names[g_font_count], &pos, MINI_IRC_FONT_NAME_MAX, prefix);
+    append_text(g_font_names[g_font_count], &pos, MINI_IRC_FONT_NAME_MAX, name);
+    if (text_equal_ci(g_font_names[g_font_count], g_font_name))
+        g_font_selected = g_font_count;
+    ++g_font_count;
+}
+
+static void scan_font_dir(const char *path, const char *prefix, struct FileInfoBlock *fib)
 {
     BPTR lock;
+
+    lock = Lock((STRPTR)path, ACCESS_READ);
+    if (lock) {
+        if (Examine(lock, fib)) {
+            while (ExNext(lock, fib) && g_font_count < MINI_IRC_FONT_MAX) {
+                if (fib->fib_DirEntryType < 0)
+                    add_scanned_font(prefix, (const char *)fib->fib_FileName);
+            }
+        }
+        UnLock(lock);
+    }
+}
+
+static void scan_fonts(void)
+{
     struct FileInfoBlock *fib;
 
     g_font_count = 0;
@@ -612,20 +652,8 @@ static void scan_fonts(void)
     fib = (struct FileInfoBlock *)AllocMem(sizeof(struct FileInfoBlock), MEMF_CLEAR);
     if (!fib)
         return;
-    lock = Lock((STRPTR)"FONTS:", ACCESS_READ);
-    if (lock) {
-        if (Examine(lock, fib)) {
-            while (ExNext(lock, fib) && g_font_count < MINI_IRC_FONT_MAX) {
-                if (fib->fib_DirEntryType < 0 && ends_with_font((const char *)fib->fib_FileName)) {
-                    copy_font_entry(g_font_names[g_font_count], (const char *)fib->fib_FileName);
-                    if (text_equal_ci(g_font_names[g_font_count], g_font_name))
-                        g_font_selected = g_font_count;
-                    ++g_font_count;
-                }
-            }
-        }
-        UnLock(lock);
-    }
+    scan_font_dir("fonts", "fonts/", fib);
+    scan_font_dir("FONTS:", 0, fib);
     FreeMem(fib, sizeof(struct FileInfoBlock));
 }
 
@@ -751,6 +779,10 @@ static void install_default_font(void)
     g_gui_font_opened = 0;
     copy_font_name(g_font_name, sizeof(g_font_name), "window font");
     g_font_size = 0;
+    if (apply_gui_font("fonts/IBM.font", 8))
+        return;
+    if (apply_gui_font("fonts/ibm.font", 8))
+        return;
     if (apply_gui_font("IBM.font", 8))
         return;
     if (apply_gui_font("ibm.font", 8))

@@ -69,11 +69,13 @@ the channel user lists.
 
 ## Font
 
-Use `Settings -> Font...` to scan `FONTS:` and select a font, available bitmap
-size, and text color. MiniIRC prefers 8-pixel fonts, especially `IBM.font/8` or
-`ibm.font/8`, then falls back to `ruby.font/8`, `topaz.font/11`, or the screen
-font. The selected font is used for MiniIRC drawing and recalculates the visible
-rows and columns. The selected text color is saved to `mini_irc.conf`.
+Use `Settings -> Font...` to scan the local `fonts` directory and `FONTS:` and
+select a font, available bitmap size, and text color. MiniIRC prefers 8-pixel
+fonts, especially `IBM.font/8` or `ibm.font/8`, then falls back to
+`ruby.font/8`, `topaz.font/11`, or the screen font. On startup MiniIRC checks
+`fonts/IBM.font/8` and `fonts/ibm.font/8` in the program directory before using
+`FONTS:`. The selected font is used for MiniIRC drawing and recalculates the
+visible rows and columns. The selected text color is saved to `mini_irc.conf`.
 
 ## Menus
 
