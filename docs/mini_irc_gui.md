@@ -69,6 +69,12 @@ Settings:
 - `Address Book...`: opens the same compact connect/address-book requester.
 - `Font...`: opens the OS1.3-safe font selector.
 
+## Event Loop Responsiveness
+
+MiniIRC limits socket receive draining per GUI tick so IRC bursts cannot starve
+Intuition events. Menus, window close, Join, and Send remain serviceable while
+incoming data is being processed.
+
 ## Limits
 
 This first GUI version is intentionally small:

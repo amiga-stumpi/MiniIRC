@@ -34,6 +34,7 @@
 #define MINI_IRC_BOTTOM_H 26
 #define MINI_IRC_DEFAULT_PORT 6667
 #define MINI_IRC_CONNECT_TIMEOUT 15
+#define MINI_IRC_RX_CHUNKS_PER_TICK 4
 #define MINI_IRC_CHIPRAM_100K 102400UL
 #define MINI_IRC_CHIPRAM_256K 262144UL
 #define MINI_IRC_CONNECT_WIN_W 424
@@ -1470,6 +1471,7 @@ static void poll_socket(void)
     int result;
     int got;
     int err;
+    int chunks;
 
     if (!g_gui.connected || g_gui.fd < 0)
         return;
@@ -1481,10 +1483,12 @@ static void poll_socket(void)
     result = call_waitselect(g_gui.socket_base, g_gui.fd + 1, &g_read_fds, 0, &g_timeout);
     if (result <= 0 || !AMITCP13_BSD_FD_ISSET(g_gui.fd, &g_read_fds))
         return;
-    for (;;) {
+    chunks = 0;
+    while (chunks < MINI_IRC_RX_CHUNKS_PER_TICK) {
         got = call_recv(g_gui.socket_base, g_gui.fd, g_recv_buf, sizeof(g_recv_buf), 0);
         if (got > 0) {
             process_rx_bytes((const char *)g_recv_buf, got);
+            ++chunks;
             continue;
         }
         if (got == 0) {
