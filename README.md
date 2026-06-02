@@ -27,7 +27,7 @@ it only uses the public bsdsocket-compatible API.
 make clean && make
 ```
 
-The output binary is:
+The main GUI output binary is:
 
 ```text
 build/MiniIRC
@@ -38,6 +38,14 @@ Copy it to the Amiga, for example:
 ```text
 copy build/MiniIRC C:
 ```
+
+An optional legacy Shell client can be built with:
+
+```sh
+make mini_irc_cli
+```
+
+It produces `build/mini_irc_cli`.
 
 ## Usage
 
