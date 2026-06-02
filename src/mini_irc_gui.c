@@ -911,18 +911,6 @@ static void draw_channel_list(void)
             Draw(g_win->RPort, (WORD)(g_chan_x + 2), (WORD)(y + 3));
             Draw(g_win->RPort, (WORD)(g_chan_x + 2), (WORD)(y - g_baseline - 2));
             draw_text_at((WORD)(g_chan_x + 5), y, ">");
-            if (i > 0) {
-                g_leave_w = 34;
-                g_leave_h = (WORD)(g_char_h + 4);
-                g_leave_x = (WORD)(g_chan_x + g_chan_w - g_leave_w - 4);
-                g_leave_y = (WORD)(y - g_baseline - 3);
-                max_chars = (g_leave_x - g_chan_x - 18) / g_char_w;
-                if (max_chars < 1)
-                    max_chars = 1;
-                if (max_chars > MINI_IRC_CHAN_SIZE - 1)
-                    max_chars = MINI_IRC_CHAN_SIZE - 1;
-                draw_button_window(g_win, g_leave_x, g_leave_y, g_leave_w, g_leave_h, "Leave");
-            }
             copy_text(tmp, max_chars + 1, g_tabs[i].name);
             Move(g_win->RPort, (WORD)(g_chan_x + 14), y);
         } else {
@@ -933,6 +921,13 @@ static void draw_channel_list(void)
             Move(g_win->RPort, (WORD)(g_chan_x + 4), y);
         }
         Text(g_win->RPort, (STRPTR)tmp, text_len(tmp));
+    }
+    if (g_active_tab > 0 && g_active_tab < g_tab_count) {
+        g_leave_w = 50;
+        g_leave_h = 14;
+        g_leave_x = (WORD)(g_chan_x + ((g_chan_w - g_leave_w) / 2));
+        g_leave_y = (WORD)(g_list_bottom - g_leave_h - 4);
+        draw_button_window(g_win, g_leave_x, g_leave_y, g_leave_w, g_leave_h, "Leave");
     }
     SetAPen(g_win->RPort, 1);
 }
@@ -2402,13 +2397,13 @@ static void update_main_gadget_positions(void)
     WORD send_x;
     WORD join_button_x;
 
-    g_join_gadget.LeftEdge = 48;
+    g_join_gadget.LeftEdge = 76;
     g_join_gadget.TopEdge = join_y;
     g_join_gadget.Width = 180;
     join_button_x = (WORD)(g_join_gadget.LeftEdge + g_join_gadget.Width + 8);
     g_join_button.LeftEdge = join_button_x;
     g_join_button.TopEdge = join_y;
-    g_msg_gadget.LeftEdge = 48;
+    g_msg_gadget.LeftEdge = 76;
     g_msg_gadget.TopEdge = msg_y;
     send_x = (WORD)(w - 52);
     g_send_gadget.LeftEdge = send_x;
@@ -2712,9 +2707,11 @@ int main(int argc, char **argv)
             } else if (cls == IDCMP_MOUSEBUTTONS && code == SELECTDOWN) {
                 handle_mouse_click(g_win->MouseX, g_win->MouseY);
             } else if (cls == IDCMP_GADGETUP && gad) {
-                if (gad->GadgetID == MINI_IRC_GID_JOIN)
+                if (gad->GadgetID == MINI_IRC_GID_JOIN ||
+                    gad->GadgetID == MINI_IRC_GID_JOIN_STR)
                     join_channel();
-                else if (gad->GadgetID == MINI_IRC_GID_SEND)
+                else if (gad->GadgetID == MINI_IRC_GID_SEND ||
+                         gad->GadgetID == MINI_IRC_GID_MSG_STR)
                     send_message();
             }
         }
