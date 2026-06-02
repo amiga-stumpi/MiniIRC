@@ -22,6 +22,7 @@
 #define MINI_IRC_DEBUG_LOG_PATH "MiniIRC-debug.log"
 #define MINI_IRC_FILE_DEBUG 0
 #define MINI_IRC_QUIT_WAIT_TICKS 10
+#define MINI_IRC_SEND_WAIT_SECONDS 1
 
 #define MINI_IRC_HOST_SIZE 128
 #define MINI_IRC_NICK_SIZE 32
@@ -1205,6 +1206,21 @@ static struct hostent *call_gethostbyname(struct Library *base, const char *name
     return d0;
 }
 
+static int wait_for_socket_write(struct Library *base, int fd)
+{
+    int result;
+
+    AMITCP13_BSD_FD_ZERO(&g_write_fds);
+    AMITCP13_BSD_FD_SET(fd, &g_write_fds);
+    g_timeout.tv_sec = MINI_IRC_SEND_WAIT_SECONDS;
+    g_timeout.tv_usec = 0;
+    g_wait_signals = 0;
+    result = call_waitselect(base, fd + 1, 0, &g_write_fds, &g_timeout);
+    if (result <= 0)
+        return 0;
+    return AMITCP13_BSD_FD_ISSET(fd, &g_write_fds) ? 1 : 0;
+}
+
 static int send_all(struct Library *base, int fd, const char *buf, int len)
 {
     int total = 0;
@@ -1218,8 +1234,11 @@ static int send_all(struct Library *base, int fd, const char *buf, int len)
             continue;
         }
         err = call_errno(base);
-        if (err == AMITCP13_EWOULDBLOCK || err == AMITCP13_EAGAIN)
+        if (err == AMITCP13_EWOULDBLOCK || err == AMITCP13_EAGAIN) {
+            if (wait_for_socket_write(base, fd))
+                continue;
             return 0;
+        }
         return 0;
     }
     return 1;
