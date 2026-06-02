@@ -1,13 +1,13 @@
 # MiniIRC
 
 MiniIRC is an experimental GUI-only AmigaOS 1.3 IRC client for 68000 systems. It opens
-its own black-background Intuition screen, uses a KVIrc-style layout, and talks
+its own Intuition screen with selectable background color, uses a KVIrc-style layout, and talks
 to the network through `bsdsocket.library`.
 
 Version:
 
 ```text
-MiniIRC v0.5 by Marcel Jaehne (c)2026
+MiniIRC v0.6 by Marcel Jaehne (c)2026
 ```
 
 ## Requirements
@@ -55,7 +55,11 @@ The main screen layout is:
 - bottom: join field and message input field
 
 Use `/nick newname` in the message input field to request a nick change on the
-current IRC server.
+current IRC server. Incoming private messages open a separate private chat tab
+with the sender, and replies from that tab go back to that nick.
+
+Use `Settings -> Background...` to choose the screen background color. The
+selection is saved to `mini_irc.conf` in the startup/current directory.
 
 Use `Settings -> Font...` to select a runtime font from `FONTS:`. MiniIRC
 tries `IBM.font/8`, `ibm.font/8`, `ruby.font/8`, and then `topaz.font/11`

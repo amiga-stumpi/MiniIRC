@@ -25,6 +25,12 @@ current directory as:
 mini_irc.addr
 ```
 
+Runtime settings are stored in:
+
+```text
+mini_irc.conf
+```
+
 Each line uses:
 
 ```text
@@ -67,13 +73,21 @@ rows and columns.
 Project:
 
 - `Connect`: opens the connect/address-book requester.
-- `Disconnect`: sends `QUIT :MiniIRC Kick1.3 v0.5` directly, waits up to one second for the server to close the connection, and then clears local channel tabs.
+- `Disconnect`: sends `QUIT :MiniIRC Kick1.3 v0.6` directly, waits up to one second for the server to close the connection, and then clears local channel tabs.
 - `Quit`: exits MiniIRC.
 
 Settings:
 
 - `Address Book...`: opens the same compact connect/address-book requester.
 - `Font...`: opens the OS1.3-safe font selector.
+- `Background...`: opens the OS1.3-safe background color selector and saves the selection to `mini_irc.conf`.
+
+## Private Chats
+
+When another user sends a private message to your current nick, MiniIRC opens a
+private chat tab named after that user. The tab user list contains your nick and
+the sender. Typing in that private tab sends replies back to that nick. The
+Leave button closes private chat tabs locally without sending `PART`.
 
 ## Debug Log
 
@@ -104,6 +118,6 @@ This first GUI version is intentionally small:
 The implementation uses plain Intuition gadgets and menus only; no GadTools,
 MUI, ReAction, ASL, or OS2+ APIs are required.
 
-## MiniIRC v0.5 Layout
+## MiniIRC v0.6 Layout
 
-MiniIRC now opens on its own black-background AmigaOS 1.3 custom screen. It chooses 2, 3, or 4 bitplanes based on available Chip RAM and now prefers 4 bitplanes more aggressively when enough memory is available. The main window uses a KVIrc-style split layout: channels are listed on the left, the active channel output is in the center, the active channel user list is on the right, and separate Channel/Join and Text/Send input rows are fixed at the bottom with visible field frames. Selecting a channel in the left list changes the active view. The active channel row contains a Leave button that sends PART and removes the channel tab. The user list is populated from IRC NAMES replies and updated on basic JOIN/PART/QUIT events.
+MiniIRC now opens on its own AmigaOS 1.3 custom screen with selectable background color. It chooses 2, 3, or 4 bitplanes based on available Chip RAM and now prefers 4 bitplanes more aggressively when enough memory is available. The main window uses a KVIrc-style split layout: channels are listed on the left, the active channel output is in the center, the active channel user list is on the right, and separate Channel/Join and Text/Send input rows are fixed at the bottom with visible field frames. Selecting a channel in the left list changes the active view. The active channel row contains a Leave button that sends PART and removes the channel tab. The user list is populated from IRC NAMES replies and updated on basic JOIN/PART/QUIT events.

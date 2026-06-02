@@ -15,10 +15,11 @@
 #include "amitcp13/bsdsocket.h"
 #include "amitcp13/tools/mini_irc_session.h"
 
-#define MINI_IRC_VERSION "v0.5"
+#define MINI_IRC_VERSION "v0.6"
 #define MINI_IRC_GUI_TITLE "MiniIRC " MINI_IRC_VERSION " by Marcel Jaehne (c)2026"
 #define MINI_IRC_QUIT_MESSAGE "QUIT :MiniIRC Kick1.3 " MINI_IRC_VERSION
 #define MINI_IRC_ADDRBOOK_PATH "mini_irc.addr"
+#define MINI_IRC_CONFIG_PATH "mini_irc.conf"
 #define MINI_IRC_DEBUG_LOG_PATH "MiniIRC-debug.log"
 #define MINI_IRC_FILE_DEBUG 0
 #define MINI_IRC_QUIT_WAIT_TICKS 10
@@ -74,6 +75,12 @@
 #define MINI_IRC_FONT_LIST_H (MINI_IRC_FONT_VISIBLE * MINI_IRC_FONT_ROW_H)
 #define MINI_IRC_FONT_WIN_W 292
 #define MINI_IRC_FONT_WIN_H 178
+#define MINI_IRC_BG_COLOR_MAX 8
+#define MINI_IRC_BG_WIN_W 210
+#define MINI_IRC_BG_WIN_H 142
+#define MINI_IRC_BG_LIST_X 14
+#define MINI_IRC_BG_LIST_Y 24
+#define MINI_IRC_BG_ROW_H 12
 
 #define MINI_IRC_GID_JOIN_STR 1
 #define MINI_IRC_GID_JOIN     2
@@ -117,6 +124,13 @@ struct MiniIrcAddr
     char nick[MINI_IRC_NICK_SIZE];
 };
 
+
+struct MiniIrcBgColor
+{
+    const char *name;
+    UWORD rgb;
+};
+
 struct MiniIrcGui
 {
     struct Library *socket_base;
@@ -136,6 +150,7 @@ static char g_font_name[MINI_IRC_FONT_NAME_MAX];
 static UWORD g_font_size;
 static ULONG g_screen_chip_free;
 static UBYTE g_screen_depth;
+static UBYTE g_bg_color_index;
 static WORD g_char_w = 8;
 static WORD g_char_h = 8;
 static WORD g_baseline = 7;
@@ -179,9 +194,20 @@ static struct Gadget g_join_button;
 
 static struct Menu g_menus[2];
 static struct MenuItem g_project_items[3];
-static struct MenuItem g_settings_items[2];
+static struct MenuItem g_settings_items[3];
 static struct IntuiText g_project_text[3];
-static struct IntuiText g_settings_text[2];
+static struct IntuiText g_settings_text[3];
+
+static const struct MiniIrcBgColor g_bg_colors[MINI_IRC_BG_COLOR_MAX] = {
+    { "Black", 0x000 },
+    { "Blue", 0x008 },
+    { "Green", 0x080 },
+    { "Red", 0x800 },
+    { "Purple", 0x808 },
+    { "Teal", 0x088 },
+    { "Gray", 0x333 },
+    { "Dark Gray", 0x111 }
+};
 static char g_font_names[MINI_IRC_FONT_MAX][MINI_IRC_FONT_NAME_MAX];
 static UWORD g_font_count;
 static UWORD g_font_selected;
@@ -197,6 +223,8 @@ static void redraw_all(void);
 static void update_main_gadget_positions(void);
 static void process_rx_bytes(const char *data, int len);
 static void draw_button_window(struct Window *win, WORD x, WORD y, WORD w, WORD h, const char *label);
+static void open_background_selector(void);
+static void apply_screen_palette(void);
 
 static WORD g_list_top;
 static WORD g_list_bottom;
@@ -1599,9 +1627,25 @@ static void route_line_to_tab(const char *line)
         append_text(out, &pos, sizeof(out), nick);
         append_text(out, &pos, sizeof(out), "> ");
         append_text(out, &pos, sizeof(out), payload);
-        idx = (chan[0] == '#') ? tab_find(chan) : 0;
-        if (idx < 0)
-            idx = tab_add(chan);
+        if (chan[0] == '#') {
+            idx = tab_find(chan);
+            if (idx < 0)
+                idx = tab_add(chan);
+        } else if (text_equal_ci(chan, g_nick_buf)) {
+            idx = tab_find(nick);
+            if (idx < 0) {
+                idx = tab_add(nick);
+                if (idx >= 0) {
+                    tab_user_add(idx, g_nick_buf);
+                    tab_user_add(idx, nick);
+                    g_active_tab = idx;
+                    draw_channel_list();
+                    draw_user_list();
+                }
+            }
+        } else {
+            idx = 0;
+        }
         if (idx < 0)
             idx = 0;
         tab_append(idx, out);
@@ -1970,6 +2014,94 @@ static void save_addrbook(void)
         Write(fh, g_addrs[i].nick, text_len(g_addrs[i].nick));
         Write(fh, "\n", 1);
     }
+    Close(fh);
+}
+
+
+static int background_color_index_by_name(const char *name)
+{
+    int i;
+
+    for (i = 0; i < MINI_IRC_BG_COLOR_MAX; ++i) {
+        if (text_equal_ci(name, g_bg_colors[i].name))
+            return i;
+    }
+    return -1;
+}
+
+static void load_config(void)
+{
+    BPTR fh;
+    char ch;
+    char line[96];
+    LONG got;
+    int len = 0;
+    char *eq;
+    int idx;
+
+    fh = Open((STRPTR)MINI_IRC_CONFIG_PATH, MODE_OLDFILE);
+    if (!fh)
+        return;
+    for (;;) {
+        got = Read(fh, &ch, 1);
+        if (got <= 0)
+            break;
+        if (ch == '\r')
+            continue;
+        if (ch != '\n' && len < (int)sizeof(line) - 1) {
+            line[len++] = ch;
+            continue;
+        }
+        line[len] = 0;
+        len = 0;
+        trim_text(line);
+        if (!line[0] || line[0] == '#')
+            continue;
+        eq = strchr(line, '=');
+        if (!eq)
+            continue;
+        *eq = 0;
+        trim_text(line);
+        trim_text(eq + 1);
+        if (text_equal_ci(line, "background")) {
+            idx = background_color_index_by_name(eq + 1);
+            if (idx >= 0)
+                g_bg_color_index = (UBYTE)idx;
+        }
+    }
+    if (len > 0) {
+        line[len] = 0;
+        trim_text(line);
+        eq = strchr(line, '=');
+        if (eq) {
+            *eq = 0;
+            trim_text(line);
+            trim_text(eq + 1);
+            if (text_equal_ci(line, "background")) {
+                idx = background_color_index_by_name(eq + 1);
+                if (idx >= 0)
+                    g_bg_color_index = (UBYTE)idx;
+            }
+        }
+    }
+    Close(fh);
+}
+
+static void save_config(void)
+{
+    BPTR fh;
+
+    if (g_bg_color_index >= MINI_IRC_BG_COLOR_MAX)
+        g_bg_color_index = 0;
+    fh = Open((STRPTR)MINI_IRC_CONFIG_PATH, MODE_NEWFILE);
+    if (!fh) {
+        status_text("Could not save settings");
+        return;
+    }
+    Write(fh, "# MiniIRC configuration\n", 24);
+    Write(fh, "background=", 11);
+    Write(fh, g_bg_colors[g_bg_color_index].name, text_len(g_bg_colors[g_bg_color_index].name));
+    Write(fh, "\n", 1);
     Close(fh);
 }
 
@@ -2492,6 +2624,144 @@ static void open_font_selector(void)
     redraw_all();
 }
 
+
+static void draw_background_selector(struct Window *win, UBYTE selected)
+{
+    int i;
+    WORD y;
+
+    SetAPen(win->RPort, 0);
+    RectFill(win->RPort, 0, 0, win->Width - 1, win->Height - 1);
+    SetAPen(win->RPort, 1);
+    SetBPen(win->RPort, 0);
+    SetDrMd(win->RPort, JAM2);
+    if (g_gui_font)
+        SetFont(win->RPort, g_gui_font);
+    Move(win->RPort, 12, 16);
+    Text(win->RPort, (STRPTR)"Background", 10);
+    draw_field_box_window(win, MINI_IRC_BG_LIST_X, MINI_IRC_BG_LIST_Y,
+                          140, MINI_IRC_BG_COLOR_MAX * MINI_IRC_BG_ROW_H + 4);
+    for (i = 0; i < MINI_IRC_BG_COLOR_MAX; ++i) {
+        y = (WORD)(MINI_IRC_BG_LIST_Y + 10 + i * MINI_IRC_BG_ROW_H);
+        if (i == selected) {
+            SetAPen(win->RPort, 3);
+            RectFill(win->RPort, (WORD)(MINI_IRC_BG_LIST_X + 1), (WORD)(y - 8),
+                     (WORD)(MINI_IRC_BG_LIST_X + 139), (WORD)(y + 1));
+            SetAPen(win->RPort, 0);
+        } else {
+            SetAPen(win->RPort, 1);
+        }
+        Move(win->RPort, (WORD)(MINI_IRC_BG_LIST_X + 4), y);
+        Text(win->RPort, (STRPTR)g_bg_colors[i].name, text_len(g_bg_colors[i].name));
+    }
+    SetAPen(win->RPort, 1);
+    draw_button_window(win, 36, 118, 42, 14, "OK");
+    draw_button_window(win, 92, 118, 62, 14, "Cancel");
+}
+
+static void open_background_selector(void)
+{
+    struct NewWindow nw;
+    struct Window *win;
+    struct IntuiMessage *msg;
+    ULONG cls;
+    UWORD code;
+    struct Gadget *gad;
+    WORD mx;
+    WORD my;
+    UBYTE selected;
+    UWORD row;
+    int done = 0;
+    static struct Gadget ok_gad;
+    static struct Gadget cancel_gad;
+
+    selected = g_bg_color_index;
+    if (selected >= MINI_IRC_BG_COLOR_MAX)
+        selected = 0;
+    memset(&ok_gad, 0, sizeof(ok_gad));
+    memset(&cancel_gad, 0, sizeof(cancel_gad));
+    ok_gad.NextGadget = &cancel_gad;
+    ok_gad.LeftEdge = 36;
+    ok_gad.TopEdge = 118;
+    ok_gad.Width = 42;
+    ok_gad.Height = 14;
+    ok_gad.Flags = GFLG_GADGHCOMP;
+    ok_gad.Activation = GACT_RELVERIFY;
+    ok_gad.GadgetType = GTYP_BOOLGADGET;
+    ok_gad.GadgetID = 201;
+    cancel_gad.LeftEdge = 92;
+    cancel_gad.TopEdge = 118;
+    cancel_gad.Width = 62;
+    cancel_gad.Height = 14;
+    cancel_gad.Flags = GFLG_GADGHCOMP;
+    cancel_gad.Activation = GACT_RELVERIFY;
+    cancel_gad.GadgetType = GTYP_BOOLGADGET;
+    cancel_gad.GadgetID = 202;
+
+    memset(&nw, 0, sizeof(nw));
+    nw.LeftEdge = 110;
+    nw.TopEdge = 45;
+    nw.Width = MINI_IRC_BG_WIN_W;
+    nw.Height = MINI_IRC_BG_WIN_H;
+    nw.DetailPen = 1;
+    nw.BlockPen = 0;
+    nw.IDCMPFlags = IDCMP_CLOSEWINDOW | IDCMP_GADGETUP | IDCMP_MOUSEBUTTONS | IDCMP_REFRESHWINDOW;
+    nw.Flags = WFLG_CLOSEGADGET | WFLG_DRAGBAR | WFLG_SMART_REFRESH | WFLG_ACTIVATE;
+    nw.FirstGadget = &ok_gad;
+    nw.Title = (STRPTR)"MiniIRC Background";
+    nw.Screen = g_screen;
+    nw.Type = CUSTOMSCREEN;
+    win = OpenWindow(&nw);
+    if (!win) {
+        status_text("Background window failed");
+        return;
+    }
+    if (g_gui_font)
+        SetFont(win->RPort, g_gui_font);
+    draw_background_selector(win, selected);
+    while (!done) {
+        Wait(1L << win->UserPort->mp_SigBit);
+        while ((msg = (struct IntuiMessage *)GetMsg(win->UserPort)) != 0) {
+            cls = msg->Class;
+            code = msg->Code;
+            gad = (struct Gadget *)msg->IAddress;
+            mx = msg->MouseX;
+            my = msg->MouseY;
+            ReplyMsg((struct Message *)msg);
+            if (cls == IDCMP_CLOSEWINDOW) {
+                done = 1;
+            } else if (cls == IDCMP_REFRESHWINDOW) {
+                BeginRefresh(win);
+                draw_background_selector(win, selected);
+                EndRefresh(win, TRUE);
+            } else if (cls == IDCMP_GADGETUP && gad) {
+                if (gad->GadgetID == 201) {
+                    g_bg_color_index = selected;
+                    apply_screen_palette();
+                    save_config();
+                    redraw_all();
+                    status_text("Background changed");
+                    done = 1;
+                } else if (gad->GadgetID == 202) {
+                    done = 1;
+                }
+            } else if (cls == IDCMP_MOUSEBUTTONS && code == SELECTDOWN) {
+                if (mx >= MINI_IRC_BG_LIST_X && mx < MINI_IRC_BG_LIST_X + 140 &&
+                    my >= MINI_IRC_BG_LIST_Y &&
+                    my < MINI_IRC_BG_LIST_Y + MINI_IRC_BG_COLOR_MAX * MINI_IRC_BG_ROW_H) {
+                    row = (UWORD)((my - MINI_IRC_BG_LIST_Y) / MINI_IRC_BG_ROW_H);
+                    if (row < MINI_IRC_BG_COLOR_MAX) {
+                        selected = (UBYTE)row;
+                        draw_background_selector(win, selected);
+                    }
+                }
+            }
+        }
+    }
+    CloseWindow(win);
+    redraw_all();
+}
+
 static void setup_menu_text(struct IntuiText *it, char *text)
 {
     it->FrontPen = 1;
@@ -2514,6 +2784,7 @@ static void setup_menu(void)
     setup_menu_text(&g_project_text[2], "Quit");
     setup_menu_text(&g_settings_text[0], "Address Book...");
     setup_menu_text(&g_settings_text[1], "Font...");
+    setup_menu_text(&g_settings_text[2], "Background...");
 
     g_menus[0].NextMenu = &g_menus[1];
     g_menus[0].LeftEdge = 0;
@@ -2537,28 +2808,34 @@ static void setup_menu(void)
     g_project_items[1].ItemFill = &g_project_text[1];
     g_project_items[2].ItemFill = &g_project_text[2];
     g_settings_items[0].NextItem = &g_settings_items[1];
+    g_settings_items[1].NextItem = &g_settings_items[2];
     g_settings_items[0].ItemFill = &g_settings_text[0];
     g_settings_items[1].ItemFill = &g_settings_text[1];
+    g_settings_items[2].ItemFill = &g_settings_text[2];
     g_project_items[0].TopEdge = 0;
     g_project_items[1].TopEdge = 10;
     g_project_items[2].TopEdge = 20;
     g_settings_items[0].TopEdge = 0;
     g_settings_items[1].TopEdge = 10;
+    g_settings_items[2].TopEdge = 20;
     g_project_items[0].Width = 92;
     g_project_items[1].Width = 92;
     g_project_items[2].Width = 92;
     g_settings_items[0].Width = 132;
     g_settings_items[1].Width = 132;
+    g_settings_items[2].Width = 132;
     g_project_items[0].Height = 10;
     g_project_items[1].Height = 10;
     g_project_items[2].Height = 10;
     g_settings_items[0].Height = 10;
     g_settings_items[1].Height = 10;
+    g_settings_items[2].Height = 10;
     g_project_items[0].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
     g_project_items[1].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
     g_project_items[2].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
     g_settings_items[0].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
     g_settings_items[1].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
+    g_settings_items[2].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
 }
 
 static void update_main_gadget_positions(void);
@@ -2663,7 +2940,7 @@ static void leave_active_channel(void)
     }
 
     copy_text(channel, sizeof(channel), g_tabs[g_active_tab].name);
-    if (g_gui.connected) {
+    if (g_gui.connected && channel[0] == '#') {
         g_send_buf[0] = 0;
         if (!append_text(g_send_buf, &pos, sizeof(g_send_buf), "PART ") ||
             !append_text(g_send_buf, &pos, sizeof(g_send_buf), channel) ||
@@ -2677,7 +2954,7 @@ static void leave_active_channel(void)
     draw_channel_list();
     draw_user_list();
     draw_output();
-    status_text("Channel left");
+    status_text(channel[0] == '#' ? "Channel left" : "Chat closed");
 }
 
 static void handle_menu(UWORD code)
@@ -2697,6 +2974,8 @@ static void handle_menu(UWORD code)
             open_connect_dialog();
         else if (item == 1)
             open_font_selector();
+        else if (item == 2)
+            open_background_selector();
     }
 }
 
@@ -2739,7 +3018,7 @@ static UBYTE choose_screen_depth(void)
 
 static void apply_screen_palette(void)
 {
-    static const UWORD colors[16] = {
+    UWORD colors[16] = {
         0x000, 0xfff, 0xf00, 0x0f0, 0x00f, 0xf0f, 0xff0, 0x0ff,
         0x777, 0xaaa, 0x800, 0x080, 0x008, 0x808, 0x880, 0x088
     };
@@ -2751,6 +3030,9 @@ static void apply_screen_palette(void)
     vp = ViewPortAddress(g_win);
     if (!vp)
         return;
+    if (g_bg_color_index >= MINI_IRC_BG_COLOR_MAX)
+        g_bg_color_index = 0;
+    colors[0] = g_bg_colors[g_bg_color_index].rgb;
     count = 1U << g_screen_depth;
     if (count > 16)
         count = 16;
@@ -2870,6 +3152,7 @@ int main(int argc, char **argv)
     tab_add("Status");
     g_active_tab = 0;
     load_addrbook();
+    load_config();
     if (g_addr_count > 0) {
         copy_text(g_host_buf, sizeof(g_host_buf), g_addrs[0].host);
         copy_text(g_port_buf, sizeof(g_port_buf), g_addrs[0].port);
