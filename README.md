@@ -81,7 +81,9 @@ the completed list once. Double-click a listed channel to join it, or use
 `Cancel` to close the list without joining. Selecting
 a channel on the left changes the active conversation. The active channel row
 shows a Leave button for sending PART and closing that tab. The user list is
-filled from IRC NAMES replies and updated for basic JOIN/PART/QUIT events.
+filled from IRC NAMES replies and updated for basic JOIN/PART/QUIT events. If
+there are more users than visible rows, `Up` and `Down` buttons scroll the user
+list.
 
 ## Address Book
 

@@ -186,6 +186,13 @@ static int g_addr_count;
 static char g_last_user_click_nick[MINI_IRC_NICK_SIZE];
 static ULONG g_last_user_click_seconds;
 static ULONG g_last_user_click_micros;
+static int g_user_scroll_top;
+static WORD g_user_up_x;
+static WORD g_user_up_y;
+static WORD g_user_down_x;
+static WORD g_user_down_y;
+static WORD g_user_scroll_w;
+static WORD g_user_scroll_h;
 static struct MiniIrcChannelListEntry g_channel_list[MINI_IRC_LIST_MAX_CHANNELS];
 static int g_channel_list_count;
 static int g_channel_list_complete;
@@ -1193,10 +1200,39 @@ static void draw_channel_list(void)
     SetAPen(g_win->RPort, 1);
 }
 
+static int user_visible_rows(void)
+{
+    int rows;
+
+    rows = (g_list_bottom - g_list_top - 22) / g_char_h;
+    if (rows < 1)
+        rows = 1;
+    return rows;
+}
+
+static void clamp_user_scroll(struct MiniIrcTab *tab)
+{
+    int max_top;
+
+    if (!tab) {
+        g_user_scroll_top = 0;
+        return;
+    }
+    max_top = tab->user_count - user_visible_rows();
+    if (max_top < 0)
+        max_top = 0;
+    if (g_user_scroll_top > max_top)
+        g_user_scroll_top = max_top;
+    if (g_user_scroll_top < 0)
+        g_user_scroll_top = 0;
+}
+
 static void draw_user_list(void)
 {
     WORD y;
     int i;
+    int idx;
+    int rows;
     int max_chars;
     struct MiniIrcTab *tab;
     char tmp[MINI_IRC_NICK_SIZE];
@@ -1206,18 +1242,35 @@ static void draw_user_list(void)
                (WORD)(g_user_x + g_user_w - 1), g_list_bottom);
     draw_panel_box(g_user_x, (WORD)(g_win->BorderTop + 2), g_user_w,
                    (WORD)(g_list_bottom - g_win->BorderTop - 1), "Users");
+    g_user_scroll_w = 46;
+    g_user_scroll_h = 14;
+    g_user_up_x = (WORD)(g_user_x + 8);
+    g_user_down_x = (WORD)(g_user_x + g_user_w - g_user_scroll_w - 8);
+    g_user_up_y = (WORD)(g_list_bottom - g_user_scroll_h - 4);
+    g_user_down_y = g_user_up_y;
     if (g_active_tab < 0 || g_active_tab >= g_tab_count)
         return;
     tab = &g_tabs[g_active_tab];
+    clamp_user_scroll(tab);
     max_chars = (g_user_w - 8) / g_char_w;
     if (max_chars > MINI_IRC_NICK_SIZE - 1)
         max_chars = MINI_IRC_NICK_SIZE - 1;
-    for (i = 0; i < tab->user_count; ++i) {
-        y = (WORD)(g_list_top + g_baseline + 2 + i * g_char_h);
-        if (y > g_list_bottom)
+    rows = user_visible_rows();
+    for (i = 0; i < rows; ++i) {
+        idx = g_user_scroll_top + i;
+        if (idx >= tab->user_count)
             break;
-        copy_text(tmp, max_chars + 1, tab->users[i]);
+        y = (WORD)(g_list_top + g_baseline + 2 + i * g_char_h);
+        if (y > g_user_up_y - 3)
+            break;
+        copy_text(tmp, max_chars + 1, tab->users[idx]);
         draw_text_at((WORD)(g_user_x + 4), y, tmp);
+    }
+    if (tab->user_count > rows) {
+        draw_button_window(g_win, g_user_up_x, g_user_up_y,
+                           g_user_scroll_w, g_user_scroll_h, "Up");
+        draw_button_window(g_win, g_user_down_x, g_user_down_y,
+                           g_user_scroll_w, g_user_scroll_h, "Down");
     }
 }
 
@@ -3541,7 +3594,25 @@ static int handle_user_list_click(WORD mx, WORD my, ULONG seconds, ULONG micros)
     if (g_active_tab < 0 || g_active_tab >= g_tab_count)
         return 1;
     tab = &g_tabs[g_active_tab];
+    clamp_user_scroll(tab);
+    if (tab->user_count > user_visible_rows()) {
+        if (mx >= g_user_up_x && mx <= g_user_up_x + g_user_scroll_w &&
+            my >= g_user_up_y && my <= g_user_up_y + g_user_scroll_h) {
+            if (g_user_scroll_top > 0)
+                --g_user_scroll_top;
+            draw_user_list();
+            return 1;
+        }
+        if (mx >= g_user_down_x && mx <= g_user_down_x + g_user_scroll_w &&
+            my >= g_user_down_y && my <= g_user_down_y + g_user_scroll_h) {
+            if (g_user_scroll_top + user_visible_rows() < tab->user_count)
+                ++g_user_scroll_top;
+            draw_user_list();
+            return 1;
+        }
+    }
     row = (my - g_list_top) / g_char_h;
+    row += g_user_scroll_top;
     if (row < 0 || row >= tab->user_count)
         return 1;
     copy_text(nick, sizeof(nick), tab->users[row]);
@@ -3576,6 +3647,7 @@ static void handle_mouse_click(WORD mx, WORD my, ULONG seconds, ULONG micros)
     row = (my - g_list_top) / g_char_h;
     if (row >= 0 && row < g_tab_count) {
         g_active_tab = row;
+        g_user_scroll_top = 0;
         draw_channel_list();
         draw_user_list();
         draw_output();
