@@ -74,10 +74,12 @@ recommended for the IRC lists and output. MiniIRC chooses 2, 3, or 4 bitplanes
 based on available Chip RAM, preferring 4 bitplanes when enough memory is
 available.
 
-Joining a channel creates/selects the channel entry. Selecting a channel on the
-left changes the active conversation. The active channel row shows a Leave
-button for sending PART and closing that tab. The user list is filled from IRC NAMES
-replies and updated for basic JOIN/PART/QUIT events.
+Joining a channel creates/selects the channel entry. The `List` button requests
+the server channel list and opens a separate list window; double-click a listed
+channel to join it, or use `Cancel` to close the list without joining. Selecting
+a channel on the left changes the active conversation. The active channel row
+shows a Leave button for sending PART and closing that tab. The user list is
+filled from IRC NAMES replies and updated for basic JOIN/PART/QUIT events.
 
 ## Address Book
 

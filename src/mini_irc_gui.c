@@ -36,6 +36,14 @@
 #define MINI_IRC_TAB_LINES 48
 #define MINI_IRC_MAX_ADDRS 8
 #define MINI_IRC_MAX_USERS 48
+#define MINI_IRC_LIST_MAX_CHANNELS 96
+#define MINI_IRC_LIST_VISIBLE 13
+#define MINI_IRC_LIST_ROW_H 10
+#define MINI_IRC_LIST_WIN_W 430
+#define MINI_IRC_LIST_WIN_H 190
+#define MINI_IRC_LIST_X 12
+#define MINI_IRC_LIST_Y 24
+#define MINI_IRC_LIST_W 406
 #define MINI_IRC_LEFT_W 112
 #define MINI_IRC_RIGHT_W 118
 #define MINI_IRC_BOTTOM_H 46
@@ -87,8 +95,9 @@
 
 #define MINI_IRC_GID_JOIN_STR 1
 #define MINI_IRC_GID_JOIN     2
-#define MINI_IRC_GID_MSG_STR  3
-#define MINI_IRC_GID_SEND     4
+#define MINI_IRC_GID_LIST     3
+#define MINI_IRC_GID_MSG_STR  4
+#define MINI_IRC_GID_SEND     5
 
 #define MINI_IRC_CGID_HOST    20
 #define MINI_IRC_CGID_PORT    21
@@ -127,6 +136,12 @@ struct MiniIrcAddr
     char nick[MINI_IRC_NICK_SIZE];
 };
 
+struct MiniIrcChannelListEntry
+{
+    char name[MINI_IRC_CHAN_SIZE];
+    char users[8];
+    char topic[72];
+};
 
 struct MiniIrcBgColor
 {
@@ -171,6 +186,15 @@ static int g_addr_count;
 static char g_last_user_click_nick[MINI_IRC_NICK_SIZE];
 static ULONG g_last_user_click_seconds;
 static ULONG g_last_user_click_micros;
+static struct MiniIrcChannelListEntry g_channel_list[MINI_IRC_LIST_MAX_CHANNELS];
+static int g_channel_list_count;
+static int g_channel_list_complete;
+static struct Window *g_channel_list_window;
+static int g_channel_list_top;
+static int g_channel_list_selected;
+static char g_last_channel_list_click[MINI_IRC_CHAN_SIZE];
+static ULONG g_last_channel_list_click_seconds;
+static ULONG g_last_channel_list_click_micros;
 
 static char g_host_buf[MINI_IRC_HOST_SIZE] = "irc.libera.chat";
 static char g_host_undo[MINI_IRC_HOST_SIZE];
@@ -199,6 +223,7 @@ static struct Gadget g_msg_gadget;
 static struct Gadget g_send_gadget;
 static struct Gadget g_join_gadget;
 static struct Gadget g_join_button;
+static struct Gadget g_list_button;
 
 static struct Menu g_menus[2];
 static struct MenuItem g_project_items[3];
@@ -245,8 +270,11 @@ static void draw_user_list(void);
 static void draw_output(void);
 static void update_main_gadget_positions(void);
 static void process_rx_bytes(const char *data, int len);
+static void poll_socket(void);
 static void draw_button_window(struct Window *win, WORD x, WORD y, WORD w, WORD h, const char *label);
+static void draw_field_box_window(struct Window *win, WORD x, WORD y, WORD w, WORD h);
 static void open_background_selector(void);
+static void open_channel_list_window(void);
 static void apply_screen_palette(void);
 
 static WORD g_list_top;
@@ -1217,6 +1245,8 @@ static void draw_main_buttons(void)
                    (WORD)(g_msg_gadget.Width + 4), (WORD)(g_msg_gadget.Height + 5));
     draw_button_window(g_win, g_join_button.LeftEdge, g_join_button.TopEdge,
                        g_join_button.Width, g_join_button.Height, "Join");
+    draw_button_window(g_win, g_list_button.LeftEdge, g_list_button.TopEdge,
+                       g_list_button.Width, g_list_button.Height, "List");
     draw_button_window(g_win, g_send_gadget.LeftEdge, g_send_gadget.TopEdge,
                        g_send_gadget.Width, g_send_gadget.Height, "Send");
 }
@@ -1673,6 +1703,274 @@ static int parse_target_token(const char *text, char *out, int out_size)
     return i > 0;
 }
 
+
+static void channel_list_reset(void)
+{
+    g_channel_list_count = 0;
+    g_channel_list_complete = 0;
+    g_channel_list_top = 0;
+    g_channel_list_selected = -1;
+    g_last_channel_list_click[0] = 0;
+}
+
+static void channel_list_add(const char *name, const char *users, const char *topic)
+{
+    struct MiniIrcChannelListEntry *entry;
+
+    if (!name || !name[0] || g_channel_list_count >= MINI_IRC_LIST_MAX_CHANNELS)
+        return;
+    entry = &g_channel_list[g_channel_list_count++];
+    copy_text(entry->name, sizeof(entry->name), name);
+    copy_text(entry->users, sizeof(entry->users), users ? users : "");
+    copy_text(entry->topic, sizeof(entry->topic), topic ? topic : "");
+}
+
+static void parse_list_reply(const char *target)
+{
+    const char *p;
+    const char *topic;
+    char chan[MINI_IRC_CHAN_SIZE];
+    char users[8];
+    int i;
+
+    p = skip_spaces(target);
+    while (*p && *p != ' ')
+        ++p;
+    p = skip_spaces(p);
+    if (!parse_target_token(p, chan, sizeof(chan)))
+        return;
+    while (*p && *p != ' ')
+        ++p;
+    p = skip_spaces(p);
+    i = 0;
+    while (p[i] && p[i] != ' ' && i < (int)sizeof(users) - 1) {
+        users[i] = p[i];
+        ++i;
+    }
+    users[i] = 0;
+    topic = p + i;
+    topic = skip_spaces(topic);
+    if (*topic == ':')
+        ++topic;
+    channel_list_add(chan, users, topic);
+}
+
+static void draw_channel_list_window(void)
+{
+    struct Window *win = g_channel_list_window;
+    int row;
+    int idx;
+    WORD y;
+    char line[MINI_IRC_CHAN_SIZE + 86];
+    int pos;
+
+    if (!win)
+        return;
+    SetAPen(win->RPort, 0);
+    RectFill(win->RPort, 0, 0, win->Width - 1, win->Height - 1);
+    SetAPen(win->RPort, 1);
+    SetBPen(win->RPort, 0);
+    SetDrMd(win->RPort, JAM2);
+    if (g_gui_font)
+        SetFont(win->RPort, g_gui_font);
+    Move(win->RPort, MINI_IRC_LIST_X, 18);
+    Text(win->RPort, (STRPTR)(g_channel_list_complete ? "Channels" : "Channels - loading"),
+         g_channel_list_complete ? 8 : 18);
+    draw_field_box_window(win, MINI_IRC_LIST_X, MINI_IRC_LIST_Y,
+                          MINI_IRC_LIST_W,
+                          (WORD)(MINI_IRC_LIST_VISIBLE * MINI_IRC_LIST_ROW_H + 4));
+    draw_button_window(win, 304, 164, 48, 14, "Up");
+    draw_button_window(win, 360, 164, 58, 14, "Down");
+    draw_button_window(win, 176, 164, 70, 14, "Cancel");
+
+    for (row = 0; row < MINI_IRC_LIST_VISIBLE; ++row) {
+        idx = g_channel_list_top + row;
+        if (idx >= g_channel_list_count)
+            break;
+        y = (WORD)(MINI_IRC_LIST_Y + 10 + row * MINI_IRC_LIST_ROW_H);
+        if (idx == g_channel_list_selected) {
+            SetAPen(win->RPort, 3);
+            RectFill(win->RPort, (WORD)(MINI_IRC_LIST_X + 1), (WORD)(y - 8),
+                     (WORD)(MINI_IRC_LIST_X + MINI_IRC_LIST_W - 1), (WORD)(y + 1));
+            SetAPen(win->RPort, 0);
+        } else {
+            SetAPen(win->RPort, 1);
+        }
+        pos = 0;
+        append_text(line, &pos, sizeof(line), g_channel_list[idx].name);
+        append_text(line, &pos, sizeof(line), " (");
+        append_text(line, &pos, sizeof(line), g_channel_list[idx].users);
+        append_text(line, &pos, sizeof(line), ") ");
+        append_text(line, &pos, sizeof(line), g_channel_list[idx].topic);
+        Move(win->RPort, (WORD)(MINI_IRC_LIST_X + 4), y);
+        Text(win->RPort, (STRPTR)line, text_len(line));
+    }
+    SetAPen(win->RPort, 1);
+}
+
+static void join_list_channel(const char *channel)
+{
+    if (!channel || !channel[0])
+        return;
+    if (!g_gui.connected) {
+        status_text("Not connected");
+        return;
+    }
+    copy_text(g_join_buf, sizeof(g_join_buf), channel);
+    g_join_si.BufferPos = text_len(g_join_buf);
+    g_join_si.NumChars = g_join_si.BufferPos;
+    mini_irc_session_join(&g_gui.session, g_join_buf);
+    RefreshGList(&g_join_gadget, g_win, 0, 1);
+    status_text("JOIN sent");
+}
+
+static void handle_channel_list_click(WORD mx, WORD my, ULONG seconds, ULONG micros, int *done)
+{
+    int row;
+    int idx;
+    char chan[MINI_IRC_CHAN_SIZE];
+
+    if (mx < MINI_IRC_LIST_X || mx >= MINI_IRC_LIST_X + MINI_IRC_LIST_W ||
+        my < MINI_IRC_LIST_Y ||
+        my >= MINI_IRC_LIST_Y + MINI_IRC_LIST_VISIBLE * MINI_IRC_LIST_ROW_H)
+        return;
+    row = (my - MINI_IRC_LIST_Y) / MINI_IRC_LIST_ROW_H;
+    idx = g_channel_list_top + row;
+    if (idx < 0 || idx >= g_channel_list_count)
+        return;
+    g_channel_list_selected = idx;
+    copy_text(chan, sizeof(chan), g_channel_list[idx].name);
+    if (text_equal_ci(chan, g_last_channel_list_click) &&
+        DoubleClick(g_last_channel_list_click_seconds, g_last_channel_list_click_micros,
+                    seconds, micros)) {
+        join_list_channel(chan);
+        if (done)
+            *done = 1;
+        return;
+    }
+    copy_text(g_last_channel_list_click, sizeof(g_last_channel_list_click), chan);
+    g_last_channel_list_click_seconds = seconds;
+    g_last_channel_list_click_micros = micros;
+    draw_channel_list_window();
+}
+
+static void open_channel_list_window(void)
+{
+    struct NewWindow nw;
+    struct Window *win;
+    struct IntuiMessage *msg;
+    ULONG cls;
+    UWORD code;
+    struct Gadget *gad;
+    WORD mx;
+    WORD my;
+    int done = 0;
+    static struct Gadget cancel_gad;
+    static struct Gadget up_gad;
+    static struct Gadget down_gad;
+
+    if (!g_gui.connected) {
+        status_text("Not connected");
+        return;
+    }
+    channel_list_reset();
+    if (!mini_irc_session_send_line(&g_gui.session, "LIST")) {
+        status_text("LIST failed");
+        return;
+    }
+
+    memset(&cancel_gad, 0, sizeof(cancel_gad));
+    memset(&up_gad, 0, sizeof(up_gad));
+    memset(&down_gad, 0, sizeof(down_gad));
+    cancel_gad.NextGadget = &up_gad;
+    cancel_gad.LeftEdge = 176;
+    cancel_gad.TopEdge = 164;
+    cancel_gad.Width = 70;
+    cancel_gad.Height = 14;
+    cancel_gad.Flags = GFLG_GADGHCOMP;
+    cancel_gad.Activation = GACT_RELVERIFY;
+    cancel_gad.GadgetType = GTYP_BOOLGADGET;
+    cancel_gad.GadgetID = 301;
+    up_gad.NextGadget = &down_gad;
+    up_gad.LeftEdge = 304;
+    up_gad.TopEdge = 164;
+    up_gad.Width = 48;
+    up_gad.Height = 14;
+    up_gad.Flags = GFLG_GADGHCOMP;
+    up_gad.Activation = GACT_RELVERIFY;
+    up_gad.GadgetType = GTYP_BOOLGADGET;
+    up_gad.GadgetID = 302;
+    down_gad.LeftEdge = 360;
+    down_gad.TopEdge = 164;
+    down_gad.Width = 58;
+    down_gad.Height = 14;
+    down_gad.Flags = GFLG_GADGHCOMP;
+    down_gad.Activation = GACT_RELVERIFY;
+    down_gad.GadgetType = GTYP_BOOLGADGET;
+    down_gad.GadgetID = 303;
+
+    memset(&nw, 0, sizeof(nw));
+    nw.LeftEdge = 70;
+    nw.TopEdge = 30;
+    nw.Width = MINI_IRC_LIST_WIN_W;
+    nw.Height = MINI_IRC_LIST_WIN_H;
+    nw.DetailPen = 1;
+    nw.BlockPen = 0;
+    nw.IDCMPFlags = IDCMP_CLOSEWINDOW | IDCMP_GADGETUP | IDCMP_MOUSEBUTTONS | IDCMP_REFRESHWINDOW;
+    nw.Flags = WFLG_CLOSEGADGET | WFLG_DRAGBAR | WFLG_SMART_REFRESH | WFLG_ACTIVATE;
+    nw.FirstGadget = &cancel_gad;
+    nw.Title = (STRPTR)"MiniIRC Channel List";
+    nw.Screen = g_screen;
+    nw.Type = CUSTOMSCREEN;
+    win = OpenWindow(&nw);
+    if (!win) {
+        status_text("List window failed");
+        return;
+    }
+    g_channel_list_window = win;
+    if (g_gui_font)
+        SetFont(win->RPort, g_gui_font);
+    draw_channel_list_window();
+    status_text("LIST requested");
+
+    while (!done) {
+        poll_socket();
+        while ((msg = (struct IntuiMessage *)GetMsg(win->UserPort)) != 0) {
+            cls = msg->Class;
+            code = msg->Code;
+            gad = (struct Gadget *)msg->IAddress;
+            mx = msg->MouseX;
+            my = msg->MouseY;
+            ReplyMsg((struct Message *)msg);
+            if (cls == IDCMP_CLOSEWINDOW) {
+                done = 1;
+            } else if (cls == IDCMP_REFRESHWINDOW) {
+                BeginRefresh(win);
+                draw_channel_list_window();
+                EndRefresh(win, TRUE);
+            } else if (cls == IDCMP_GADGETUP && gad) {
+                if (gad->GadgetID == 301) {
+                    done = 1;
+                } else if (gad->GadgetID == 302) {
+                    if (g_channel_list_top > 0)
+                        --g_channel_list_top;
+                    draw_channel_list_window();
+                } else if (gad->GadgetID == 303) {
+                    if (g_channel_list_top + MINI_IRC_LIST_VISIBLE < g_channel_list_count)
+                        ++g_channel_list_top;
+                    draw_channel_list_window();
+                }
+            } else if (cls == IDCMP_MOUSEBUTTONS && code == SELECTDOWN) {
+                handle_channel_list_click(mx, my, msg->Seconds, msg->Micros, &done);
+            }
+        }
+        Delay(1);
+    }
+    g_channel_list_window = 0;
+    CloseWindow(win);
+    redraw_all();
+}
+
 static void parse_names_reply(const char *target)
 {
     const char *p;
@@ -1768,6 +2066,19 @@ static void route_line_to_tab(const char *line)
     if (*p)
         ++p;
     target = skip_spaces(p);
+
+    if (cmd[0] == '3' && cmd[1] == '2' && cmd[2] == '2') {
+        parse_list_reply(target);
+        draw_channel_list_window();
+        return;
+    }
+
+    if (cmd[0] == '3' && cmd[1] == '2' && cmd[2] == '3') {
+        g_channel_list_complete = 1;
+        draw_channel_list_window();
+        status_text("LIST complete");
+        return;
+    }
 
     if (cmd[0] == '3' && cmd[1] == '5' && cmd[2] == '3') {
         parse_names_reply(target);
@@ -3069,6 +3380,7 @@ static void setup_main_gadgets(void)
     memset(&g_msg_si, 0, sizeof(g_msg_si));
     memset(&g_join_gadget, 0, sizeof(g_join_gadget));
     memset(&g_join_button, 0, sizeof(g_join_button));
+    memset(&g_list_button, 0, sizeof(g_list_button));
     memset(&g_msg_gadget, 0, sizeof(g_msg_gadget));
     memset(&g_send_gadget, 0, sizeof(g_send_gadget));
 
@@ -3085,13 +3397,20 @@ static void setup_main_gadgets(void)
     g_join_gadget.GadgetType = GTYP_STRGADGET;
     g_join_gadget.SpecialInfo = &g_join_si;
     g_join_gadget.GadgetID = MINI_IRC_GID_JOIN_STR;
-    g_join_button.NextGadget = &g_msg_gadget;
+    g_join_button.NextGadget = &g_list_button;
     g_join_button.Width = 52;
     g_join_button.Height = 16;
     g_join_button.Flags = GFLG_GADGHCOMP;
     g_join_button.Activation = GACT_RELVERIFY;
     g_join_button.GadgetType = GTYP_BOOLGADGET;
     g_join_button.GadgetID = MINI_IRC_GID_JOIN;
+    g_list_button.NextGadget = &g_msg_gadget;
+    g_list_button.Width = 48;
+    g_list_button.Height = 16;
+    g_list_button.Flags = GFLG_GADGHCOMP;
+    g_list_button.Activation = GACT_RELVERIFY;
+    g_list_button.GadgetType = GTYP_BOOLGADGET;
+    g_list_button.GadgetID = MINI_IRC_GID_LIST;
     g_msg_gadget.NextGadget = &g_send_gadget;
     g_msg_gadget.Height = 16;
     g_msg_gadget.Activation = GACT_RELVERIFY;
@@ -3114,6 +3433,7 @@ static void update_main_gadget_positions(void)
     WORD msg_y = (WORD)(g_input_y + 24);
     WORD send_x;
     WORD join_button_x;
+    WORD list_button_x;
 
     g_join_gadget.LeftEdge = 76;
     g_join_gadget.TopEdge = join_y;
@@ -3121,6 +3441,9 @@ static void update_main_gadget_positions(void)
     join_button_x = (WORD)(g_join_gadget.LeftEdge + g_join_gadget.Width + 8);
     g_join_button.LeftEdge = join_button_x;
     g_join_button.TopEdge = join_y;
+    list_button_x = (WORD)(g_join_button.LeftEdge + g_join_button.Width + 6);
+    g_list_button.LeftEdge = list_button_x;
+    g_list_button.TopEdge = join_y;
     g_msg_gadget.LeftEdge = 76;
     g_msg_gadget.TopEdge = msg_y;
     send_x = (WORD)(w - 52);
@@ -3129,11 +3452,12 @@ static void update_main_gadget_positions(void)
     g_msg_gadget.Width = (WORD)(send_x - g_msg_gadget.LeftEdge - 8);
     if (g_msg_gadget.Width < 80)
         g_msg_gadget.Width = 80;
-    if (join_button_x + g_join_button.Width + 4 > send_x) {
-        g_join_gadget.Width = (WORD)(send_x - g_join_gadget.LeftEdge - g_join_button.Width - 16);
+    if (list_button_x + g_list_button.Width + 4 > send_x) {
+        g_join_gadget.Width = (WORD)(send_x - g_join_gadget.LeftEdge - g_join_button.Width - g_list_button.Width - 22);
         if (g_join_gadget.Width < 80)
             g_join_gadget.Width = 80;
         g_join_button.LeftEdge = (WORD)(g_join_gadget.LeftEdge + g_join_gadget.Width + 8);
+        g_list_button.LeftEdge = (WORD)(g_join_button.LeftEdge + g_join_button.Width + 6);
     }
 }
 
@@ -3369,8 +3693,8 @@ static int open_main_window(void)
     install_default_font();
     layout_window();
     setup_main_gadgets();
-    AddGList(g_win, &g_join_gadget, -1, 4, 0);
-    RefreshGList(&g_join_gadget, g_win, 0, 4);
+    AddGList(g_win, &g_join_gadget, -1, 5, 0);
+    RefreshGList(&g_join_gadget, g_win, 0, 5);
     setup_menu();
     SetMenuStrip(g_win, &g_menus[0]);
     return 1;
@@ -3381,7 +3705,7 @@ static void close_main_window(void)
     if (!g_win)
         return;
     ClearMenuStrip(g_win);
-    RemoveGList(g_win, &g_join_gadget, 4);
+    RemoveGList(g_win, &g_join_gadget, 5);
     close_gui_font();
     CloseWindow(g_win);
     g_win = 0;
@@ -3467,6 +3791,8 @@ int main(int argc, char **argv)
                 if (gad->GadgetID == MINI_IRC_GID_JOIN ||
                     gad->GadgetID == MINI_IRC_GID_JOIN_STR)
                     join_channel();
+                else if (gad->GadgetID == MINI_IRC_GID_LIST)
+                    open_channel_list_window();
                 else if (gad->GadgetID == MINI_IRC_GID_SEND ||
                          gad->GadgetID == MINI_IRC_GID_MSG_STR)
                     send_message();

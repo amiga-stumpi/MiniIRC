@@ -55,7 +55,9 @@ it active. Incoming channel messages are stored in their channel tab. The output
 area only shows the currently selected tab, and the active tab is highlighted.
 
 Join channels with the `Join` field and button. `#` is added automatically when
-omitted.
+omitted. Use the `List` button to request the server channel list. The channel
+list opens in a separate window; double-click a channel to join it, or press
+`Cancel` to close the list without choosing a channel.
 
 ## Messages
 
