@@ -58,15 +58,16 @@ with a horizontal separator below it. Inactive channels with new messages are
 drawn in green until they are selected.
 When a channel has more users than visible rows, the user list shows `Up` and
 `Down` buttons for scrolling. After the NAMES list finishes, MiniIRC sends
-WHOIS requests for the visible channel users and uses reply `317` to mark users
-idle for at least five minutes. The user list is sorted alphabetically, with OP
+WHOIS requests in small batches for visible channel users and uses reply `317`
+to mark users idle for at least five minutes. The user list is sorted alphabetically, with OP
 and HalfOP users kept at the top and drawn in green. MiniIRC also tracks basic
 `MODE +o/-o/+h/-h` changes for that display. WHOIS data for the active tab is
 refreshed every 120 seconds. Normal idle users are drawn in yellow when the
 current screen depth provides a yellow pen.
 
-Join channels with the `Join` field and button. `#` is added automatically when
-omitted. Use the `List` button to request the server channel list. The channel
+Join channels with the `Join` field and button. `#` is added automatically only
+when the entered name has no IRC channel prefix, so names like `##amiga` are
+preserved exactly. Use the `List` button to request the server channel list. The channel
 list opens in a separate window. While the server replies are being collected,
 the window shows `Retrieving channel list... please wait`; the completed list is
 drawn once the server finishes the response. Double-click a channel to join it,

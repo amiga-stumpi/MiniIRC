@@ -38,6 +38,7 @@
 #define MINI_IRC_MAX_USERS 48
 #define MINI_IRC_IDLE_THRESHOLD_SECONDS 300UL
 #define MINI_IRC_WHOIS_INTERVAL_TICKS 6000UL
+#define MINI_IRC_WHOIS_MAX_PER_BATCH 4
 #define MINI_IRC_LIST_MAX_CHANNELS 96
 #define MINI_IRC_LIST_VISIBLE 13
 #define MINI_IRC_LIST_ROW_H 10
@@ -285,6 +286,7 @@ static void redraw_all(void);
 static void draw_channel_list(void);
 static void draw_user_list(void);
 static void draw_output(void);
+static int user_visible_rows(void);
 static void update_main_gadget_positions(void);
 static void process_rx_bytes(const char *data, int len);
 static void poll_socket(void);
@@ -1344,13 +1346,29 @@ static int send_whois_for_nick(const char *nick)
 static void request_whois_for_tab(int tab_idx)
 {
     int i;
+    int start;
+    int sent;
+    int rows;
     struct MiniIrcTab *tab;
 
     if (tab_idx < 0 || tab_idx >= g_tab_count || !g_gui.connected)
         return;
     tab = &g_tabs[tab_idx];
-    for (i = 0; i < tab->user_count; ++i)
-        send_whois_for_nick(tab->users[i]);
+    if (tab->user_count <= 0)
+        return;
+    rows = user_visible_rows();
+    start = (tab_idx == g_active_tab) ? g_user_scroll_top : 0;
+    if (start < 0)
+        start = 0;
+    if (start >= tab->user_count)
+        start = 0;
+    sent = 0;
+    for (i = start; i < tab->user_count && i < start + rows; ++i) {
+        if (send_whois_for_nick(tab->users[i]))
+            ++sent;
+        if (sent >= MINI_IRC_WHOIS_MAX_PER_BATCH)
+            break;
+    }
 }
 
 static void open_private_chat_tab(const char *nick)
@@ -2802,6 +2820,11 @@ static void poll_socket(void)
     }
 }
 
+static int is_channel_prefix_char(char c)
+{
+    return c == '#' || c == '&' || c == '+' || c == '!';
+}
+
 static void join_channel(void)
 {
     char chan[MINI_IRC_CHAN_SIZE];
@@ -2813,7 +2836,7 @@ static void join_channel(void)
         status_text("Enter channel");
         return;
     }
-    if (chan[0] != '#') {
+    if (!is_channel_prefix_char(chan[0])) {
         memmove(chan + 1, chan, text_len(chan) + 1);
         chan[0] = '#';
     }

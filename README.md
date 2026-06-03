@@ -82,16 +82,19 @@ Joining a channel creates/selects the channel entry. The `List` button requests
 the server channel list and opens a separate list window. The window shows
 `Retrieving channel list... please wait` while replies are collected, then draws
 the completed list once. Double-click a listed channel to join it, or use
-`Cancel` to close the list without joining. Selecting
+`Cancel` to close the list without joining. Channel names such as `##amiga` are
+preserved exactly; MiniIRC only adds `#` when the entered name has no IRC channel
+prefix. Selecting
 a channel on the left changes the active conversation. Inactive channels with
 new messages are shown in green until selected. The active channel row
 shows a Leave button for sending PART and closing that tab. The user list is
 filled from IRC NAMES replies and updated for basic JOIN/PART/QUIT/MODE events.
 Users are sorted alphabetically, with OP and HalfOP users kept at the top and
 drawn in green. If there are more users than visible rows, `Up` and `Down`
-buttons scroll the user list. MiniIRC requests WHOIS idle information after the
-NAMES list is complete and then refreshes WHOIS data for the active tab every
-120 seconds. Normal users idle for at least five minutes are drawn in yellow
+buttons scroll the user list. MiniIRC requests WHOIS idle information in small
+batches for visible users after the NAMES list is complete and then refreshes
+WHOIS data for the active tab every 120 seconds. Normal users idle for at least
+five minutes are drawn in yellow
 when the active screen depth has a yellow pen available.
 
 ## Address Book
