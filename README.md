@@ -7,7 +7,7 @@ to the network through `bsdsocket.library`.
 Version:
 
 ```text
-MiniIRC v0.6 by Marcel Jaehne (c)2026
+MiniIRC v0.7 by Marcel Jaehne (c)2026
 ```
 
 ## Requirements
@@ -62,7 +62,8 @@ nick. Double-clicking a nick in the user list opens the same kind of private
 chat tab.
 
 Use `Settings -> Background...` to choose the screen background color. The
-selection is saved to `mini_irc.conf` in the startup/current directory.
+selection is saved to `mini_irc.conf` in the startup/current directory. Use
+`? -> Info` to open the MiniIRC version and author information dialog.
 
 Use `Settings -> Font...` to select a runtime font from the local `fonts`
 directory or `FONTS:` and choose the text color. On startup MiniIRC checks local `fonts/IBM.font/8` and `fonts/ibm.font/8`

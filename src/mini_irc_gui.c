@@ -15,7 +15,7 @@
 #include "amitcp13/bsdsocket.h"
 #include "amitcp13/tools/mini_irc_session.h"
 
-#define MINI_IRC_VERSION "v0.6"
+#define MINI_IRC_VERSION "v0.7"
 #define MINI_IRC_GUI_TITLE "MiniIRC " MINI_IRC_VERSION " by Marcel Jaehne (c)2026"
 #define MINI_IRC_QUIT_MESSAGE "QUIT :MiniIRC Kick1.3 " MINI_IRC_VERSION
 #define MINI_IRC_ADDRBOOK_PATH "mini_irc.addr"
@@ -237,11 +237,13 @@ static struct Gadget g_join_gadget;
 static struct Gadget g_join_button;
 static struct Gadget g_list_button;
 
-static struct Menu g_menus[2];
+static struct Menu g_menus[3];
 static struct MenuItem g_project_items[3];
 static struct MenuItem g_settings_items[3];
+static struct MenuItem g_help_items[1];
 static struct IntuiText g_project_text[3];
 static struct IntuiText g_settings_text[3];
+static struct IntuiText g_help_text[1];
 
 
 static const struct MiniIrcBgColor g_text_colors[MINI_IRC_TEXT_COLOR_MAX] = {
@@ -287,6 +289,7 @@ static void draw_button_window(struct Window *win, WORD x, WORD y, WORD w, WORD 
 static void draw_field_box_window(struct Window *win, WORD x, WORD y, WORD w, WORD h);
 static void open_background_selector(void);
 static void open_channel_list_window(void);
+static void open_info_dialog(void);
 static void apply_screen_palette(void);
 
 static WORD g_list_top;
@@ -3480,6 +3483,93 @@ static void open_background_selector(void)
     redraw_all();
 }
 
+
+static void draw_info_dialog(struct Window *win)
+{
+    SetAPen(win->RPort, 0);
+    RectFill(win->RPort, 0, 0, win->Width - 1, win->Height - 1);
+    SetAPen(win->RPort, 1);
+    SetBPen(win->RPort, 0);
+    SetDrMd(win->RPort, JAM2);
+    if (g_gui_font)
+        SetFont(win->RPort, g_gui_font);
+    Move(win->RPort, 14, 24);
+    Text(win->RPort, (STRPTR)"MiniIRC for Kick1.3", text_len("MiniIRC for Kick1.3"));
+    Move(win->RPort, 14, 40);
+    Text(win->RPort, (STRPTR)"Version: " MINI_IRC_VERSION, text_len("Version: " MINI_IRC_VERSION));
+    Move(win->RPort, 14, 56);
+    Text(win->RPort, (STRPTR)"by Marcel Jaehne", text_len("by Marcel Jaehne"));
+    Move(win->RPort, 14, 72);
+    Text(win->RPort, (STRPTR)"(c) 2026", text_len("(c) 2026"));
+    Move(win->RPort, 14, 92);
+    Text(win->RPort, (STRPTR)"If you want to buy me a coffe, send me", text_len("If you want to buy me a coffe, send me"));
+    Move(win->RPort, 14, 108);
+    Text(win->RPort, (STRPTR)"a buck to: https://paypal.me/mytubefree", text_len("a buck to: https://paypal.me/mytubefree"));
+    draw_button_window(win, 142, 134, 42, 14, "OK");
+}
+
+static void open_info_dialog(void)
+{
+    struct NewWindow nw;
+    struct Window *win;
+    struct IntuiMessage *msg;
+    ULONG cls;
+    struct Gadget *gad;
+    int done = 0;
+    static struct Gadget ok_gad;
+
+    memset(&ok_gad, 0, sizeof(ok_gad));
+    ok_gad.LeftEdge = 142;
+    ok_gad.TopEdge = 134;
+    ok_gad.Width = 42;
+    ok_gad.Height = 14;
+    ok_gad.Flags = GFLG_GADGHCOMP;
+    ok_gad.Activation = GACT_RELVERIFY;
+    ok_gad.GadgetType = GTYP_BOOLGADGET;
+    ok_gad.GadgetID = 401;
+
+    memset(&nw, 0, sizeof(nw));
+    nw.LeftEdge = 120;
+    nw.TopEdge = 45;
+    nw.Width = 330;
+    nw.Height = 164;
+    nw.DetailPen = 1;
+    nw.BlockPen = 0;
+    nw.IDCMPFlags = IDCMP_CLOSEWINDOW | IDCMP_GADGETUP | IDCMP_REFRESHWINDOW;
+    nw.Flags = WFLG_CLOSEGADGET | WFLG_DRAGBAR | WFLG_SMART_REFRESH | WFLG_ACTIVATE;
+    nw.FirstGadget = &ok_gad;
+    nw.Title = (STRPTR)"MiniIRC Info";
+    nw.Screen = g_screen;
+    nw.Type = CUSTOMSCREEN;
+    win = OpenWindow(&nw);
+    if (!win) {
+        status_text("Info window failed");
+        return;
+    }
+    if (g_gui_font)
+        SetFont(win->RPort, g_gui_font);
+    draw_info_dialog(win);
+    while (!done) {
+        Wait(1L << win->UserPort->mp_SigBit);
+        while ((msg = (struct IntuiMessage *)GetMsg(win->UserPort)) != 0) {
+            cls = msg->Class;
+            gad = (struct Gadget *)msg->IAddress;
+            ReplyMsg((struct Message *)msg);
+            if (cls == IDCMP_CLOSEWINDOW) {
+                done = 1;
+            } else if (cls == IDCMP_REFRESHWINDOW) {
+                BeginRefresh(win);
+                draw_info_dialog(win);
+                EndRefresh(win, TRUE);
+            } else if (cls == IDCMP_GADGETUP && gad && gad->GadgetID == 401) {
+                done = 1;
+            }
+        }
+    }
+    CloseWindow(win);
+    redraw_all();
+}
+
 static void setup_menu_text(struct IntuiText *it, char *text)
 {
     it->FrontPen = 1;
@@ -3497,12 +3587,14 @@ static void setup_menu(void)
     memset(g_menus, 0, sizeof(g_menus));
     memset(g_project_items, 0, sizeof(g_project_items));
     memset(g_settings_items, 0, sizeof(g_settings_items));
+    memset(g_help_items, 0, sizeof(g_help_items));
     setup_menu_text(&g_project_text[0], "Connect");
     setup_menu_text(&g_project_text[1], "Disconnect");
     setup_menu_text(&g_project_text[2], "Quit");
     setup_menu_text(&g_settings_text[0], "Address Book...");
     setup_menu_text(&g_settings_text[1], "Font...");
     setup_menu_text(&g_settings_text[2], "Background...");
+    setup_menu_text(&g_help_text[0], "Info");
 
     g_menus[0].NextMenu = &g_menus[1];
     g_menus[0].LeftEdge = 0;
@@ -3512,6 +3604,7 @@ static void setup_menu(void)
     g_menus[0].Flags = MENUENABLED;
     g_menus[0].MenuName = (STRPTR)"Project";
     g_menus[0].FirstItem = &g_project_items[0];
+    g_menus[1].NextMenu = &g_menus[2];
     g_menus[1].LeftEdge = 74;
     g_menus[1].TopEdge = 0;
     g_menus[1].Width = 70;
@@ -3519,6 +3612,13 @@ static void setup_menu(void)
     g_menus[1].Flags = MENUENABLED;
     g_menus[1].MenuName = (STRPTR)"Settings";
     g_menus[1].FirstItem = &g_settings_items[0];
+    g_menus[2].LeftEdge = 154;
+    g_menus[2].TopEdge = 0;
+    g_menus[2].Width = 16;
+    g_menus[2].Height = 10;
+    g_menus[2].Flags = MENUENABLED;
+    g_menus[2].MenuName = (STRPTR)"?";
+    g_menus[2].FirstItem = &g_help_items[0];
 
     g_project_items[0].NextItem = &g_project_items[1];
     g_project_items[1].NextItem = &g_project_items[2];
@@ -3530,30 +3630,35 @@ static void setup_menu(void)
     g_settings_items[0].ItemFill = &g_settings_text[0];
     g_settings_items[1].ItemFill = &g_settings_text[1];
     g_settings_items[2].ItemFill = &g_settings_text[2];
+    g_help_items[0].ItemFill = &g_help_text[0];
     g_project_items[0].TopEdge = 0;
     g_project_items[1].TopEdge = 10;
     g_project_items[2].TopEdge = 20;
     g_settings_items[0].TopEdge = 0;
     g_settings_items[1].TopEdge = 10;
     g_settings_items[2].TopEdge = 20;
+    g_help_items[0].TopEdge = 0;
     g_project_items[0].Width = 92;
     g_project_items[1].Width = 92;
     g_project_items[2].Width = 92;
     g_settings_items[0].Width = 132;
     g_settings_items[1].Width = 132;
     g_settings_items[2].Width = 132;
+    g_help_items[0].Width = 58;
     g_project_items[0].Height = 10;
     g_project_items[1].Height = 10;
     g_project_items[2].Height = 10;
     g_settings_items[0].Height = 10;
     g_settings_items[1].Height = 10;
     g_settings_items[2].Height = 10;
+    g_help_items[0].Height = 10;
     g_project_items[0].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
     g_project_items[1].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
     g_project_items[2].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
     g_settings_items[0].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
     g_settings_items[1].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
     g_settings_items[2].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
+    g_help_items[0].Flags = ITEMTEXT | ITEMENABLED | HIGHCOMP;
 }
 
 static void update_main_gadget_positions(void);
@@ -3721,6 +3826,9 @@ static void handle_menu(UWORD code)
             open_font_selector();
         else if (item == 2)
             open_background_selector();
+    } else if (menu == 2) {
+        if (item == 0)
+            open_info_dialog();
     }
 }
 
