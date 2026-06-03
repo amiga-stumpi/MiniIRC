@@ -50,14 +50,16 @@ with server, port, and nick fields.
 The main screen layout is:
 
 - left side: channel list
-- center: active channel output
+- center: active channel output with a single-line topic header
 - right side: user list for the active channel
 - bottom: join field and message input field
 
 Use `/nick newname` in the message input field to request a nick change on the
-current IRC server. Chat messages are shown with the current system-time prefix,
-for example `[12:34] <nick> text`, and long messages wrap inside the active
-chat output pane. Incoming private messages open a separate
+current IRC server. The active channel topic is shown as one truncated header
+line above the chat output, separated by a horizontal line. Chat messages are
+shown with the current system-time prefix, for example `[12:34] <nick> text`,
+and long messages wrap inside the active chat output pane. Incoming private
+messages open a separate
 private chat tab with the sender, and replies from that tab go back to that
 nick. Double-clicking a nick in the user list opens the same kind of private
 chat tab.

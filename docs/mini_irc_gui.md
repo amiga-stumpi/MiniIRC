@@ -53,7 +53,9 @@ The top row contains chat tabs. `Status` is always present for server messages.
 When joining a channel, MiniIRC creates a tab named after that channel and makes
 it active. Incoming channel messages are stored in their channel tab. The output
 area only shows the currently selected tab, and the active tab is highlighted.
-Inactive channels with new messages are drawn in green until they are selected.
+The output pane shows the active channel topic as a single truncated header line
+with a horizontal separator below it. Inactive channels with new messages are
+drawn in green until they are selected.
 When a channel has more users than visible rows, the user list shows `Up` and
 `Down` buttons for scrolling. After the NAMES list finishes, MiniIRC sends
 WHOIS requests for the visible channel users and uses reply `317` to mark users

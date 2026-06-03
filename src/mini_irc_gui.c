@@ -123,6 +123,7 @@ struct MiniIrcSocketCtx
 struct MiniIrcTab
 {
     char name[MINI_IRC_CHAN_SIZE];
+    char topic[MINI_IRC_LINE_SIZE];
     char lines[MINI_IRC_TAB_LINES][MINI_IRC_LINE_SIZE];
     char users[MINI_IRC_MAX_USERS][MINI_IRC_NICK_SIZE];
     UBYTE user_modes[MINI_IRC_MAX_USERS];
@@ -1107,12 +1108,22 @@ static int tab_add(const char *name)
         return -1;
     idx = g_tab_count++;
     copy_text(g_tabs[idx].name, MINI_IRC_CHAN_SIZE, name);
+    g_tabs[idx].topic[0] = 0;
     g_tabs[idx].next_line = 0;
     g_tabs[idx].line_count = 0;
     g_tabs[idx].user_count = 0;
     g_tabs[idx].names_receiving = 0;
     g_tabs[idx].unread = 0;
     return idx;
+}
+
+static void tab_set_topic(int idx, const char *topic)
+{
+    if (idx < 0 || idx >= g_tab_count)
+        return;
+    copy_text(g_tabs[idx].topic, sizeof(g_tabs[idx].topic), topic ? topic : "");
+    if (idx == g_active_tab)
+        draw_output();
 }
 
 static UBYTE nick_mode_from_prefix(const char **nick)
@@ -1603,19 +1614,27 @@ static void draw_output(void)
     clear_rect(g_term_x, (WORD)(g_win->BorderTop + 2),
                (WORD)(g_term_x + g_term_w - 1), g_list_bottom);
     draw_panel_box(g_term_x, (WORD)(g_win->BorderTop + 2), g_term_w,
-                   (WORD)(g_list_bottom - g_win->BorderTop - 1),
-                   (g_active_tab >= 0 && g_active_tab < g_tab_count) ? g_tabs[g_active_tab].name : "Output");
+                   (WORD)(g_list_bottom - g_win->BorderTop - 1), 0);
     if (g_active_tab < 0 || g_active_tab >= g_tab_count)
         return;
     tab = &g_tabs[g_active_tab];
-    visible_rows = (g_term_h - g_char_h - 4) / g_char_h;
-    if (visible_rows < 1)
-        return;
     max_chars = (g_term_w - 8) / g_char_w;
-    if (max_chars < 1)
-        return;
     if (max_chars > MINI_IRC_LINE_SIZE - 1)
         max_chars = MINI_IRC_LINE_SIZE - 1;
+    if (max_chars > 0) {
+        copy_text(tmp, max_chars + 1, tab->topic);
+        draw_text_at((WORD)(g_term_x + 4),
+                     (WORD)(g_term_y + g_baseline + 2),
+                     tmp);
+    }
+    SetAPen(g_win->RPort, 1);
+    Move(g_win->RPort, (WORD)(g_term_x + 1), (WORD)(g_term_y + g_char_h + 3));
+    Draw(g_win->RPort, (WORD)(g_term_x + g_term_w - 2), (WORD)(g_term_y + g_char_h + 3));
+    visible_rows = (g_term_h - (2 * g_char_h) - 6) / g_char_h;
+    if (visible_rows < 1)
+        return;
+    if (max_chars < 1)
+        return;
 
     total_wraps = 0;
     for (row = 0; row < tab->line_count; ++row) {
@@ -1640,7 +1659,7 @@ static void draw_output(void)
                 continue;
             copy_output_wrap_segment(tmp, sizeof(tmp), tab->lines[line_index], max_chars, wrap);
             draw_text_at((WORD)(g_term_x + 4),
-                         (WORD)(g_term_y + g_char_h + g_baseline + 2 + remaining_rows * g_char_h),
+                         (WORD)(g_term_y + (2 * g_char_h) + g_baseline + 5 + remaining_rows * g_char_h),
                          tmp);
             ++remaining_rows;
             if (remaining_rows >= visible_rows)
@@ -2418,6 +2437,67 @@ static void parse_whois_idle_reply(const char *target)
     tab_user_set_idle(nick, idle);
 }
 
+static void parse_topic_numeric_reply(const char *target)
+{
+    const char *p;
+    char chan[MINI_IRC_CHAN_SIZE];
+    int idx;
+
+    p = skip_spaces(target);
+    while (*p && *p != ' ')
+        ++p;
+    p = skip_spaces(p);
+    if (!parse_target_token(p, chan, sizeof(chan)))
+        return;
+    idx = tab_find(chan);
+    if (idx < 0)
+        idx = tab_add(chan);
+    while (*p && *p != ' ')
+        ++p;
+    while (*p && *p != ':')
+        ++p;
+    if (*p == ':')
+        ++p;
+    tab_set_topic(idx, p);
+}
+
+static void parse_no_topic_numeric_reply(const char *target)
+{
+    const char *p;
+    char chan[MINI_IRC_CHAN_SIZE];
+    int idx;
+
+    p = skip_spaces(target);
+    while (*p && *p != ' ')
+        ++p;
+    p = skip_spaces(p);
+    if (!parse_target_token(p, chan, sizeof(chan)))
+        return;
+    idx = tab_find(chan);
+    if (idx < 0)
+        idx = tab_add(chan);
+    tab_set_topic(idx, "");
+}
+
+static void parse_topic_command(const char *target)
+{
+    const char *p;
+    char chan[MINI_IRC_CHAN_SIZE];
+    int idx;
+
+    p = skip_spaces(target);
+    if (!parse_target_token(p, chan, sizeof(chan)))
+        return;
+    idx = tab_find(chan);
+    if (idx < 0)
+        idx = tab_add(chan);
+    while (*p && *p != ':')
+        ++p;
+    if (*p == ':')
+        ++p;
+    tab_set_topic(idx, p);
+}
+
 static void parse_channel_mode_reply(const char *target)
 {
     const char *p;
@@ -2504,6 +2584,16 @@ static void route_line_to_tab(const char *line)
         return;
     }
 
+    if (cmd[0] == '3' && cmd[1] == '3' && cmd[2] == '2') {
+        parse_topic_numeric_reply(target);
+        return;
+    }
+
+    if (cmd[0] == '3' && cmd[1] == '3' && cmd[2] == '1') {
+        parse_no_topic_numeric_reply(target);
+        return;
+    }
+
     if ((cmd[0] == '3' && cmd[1] == '0' && cmd[2] == '1') ||
         (cmd[0] == '3' && cmd[1] == '1' && cmd[2] == '1') ||
         (cmd[0] == '3' && cmd[1] == '1' && cmd[2] == '2') ||
@@ -2541,6 +2631,12 @@ static void route_line_to_tab(const char *line)
 
     if (cmd[0] == 'M' && cmd[1] == 'O' && cmd[2] == 'D' && cmd[3] == 'E') {
         parse_channel_mode_reply(target);
+        return;
+    }
+
+    if (cmd[0] == 'T' && cmd[1] == 'O' && cmd[2] == 'P' && cmd[3] == 'I' &&
+        cmd[4] == 'C') {
+        parse_topic_command(target);
         return;
     }
 
