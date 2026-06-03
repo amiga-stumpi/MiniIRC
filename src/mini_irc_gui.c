@@ -2430,10 +2430,8 @@ static void finish_names_reply(const char *target)
     if (!parse_target_token(p, chan, sizeof(chan)))
         return;
     idx = tab_find(chan);
-    if (idx >= 0) {
+    if (idx >= 0)
         g_tabs[idx].names_receiving = 0;
-        request_whois_for_tab(idx);
-    }
 }
 
 static void parse_whois_idle_reply(const char *target)
