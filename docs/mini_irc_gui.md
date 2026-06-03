@@ -56,8 +56,10 @@ area only shows the currently selected tab, and the active tab is highlighted.
 
 Join channels with the `Join` field and button. `#` is added automatically when
 omitted. Use the `List` button to request the server channel list. The channel
-list opens in a separate window; double-click a channel to join it, or press
-`Cancel` to close the list without choosing a channel.
+list opens in a separate window. While the server replies are being collected,
+the window shows `Retrieving channel list... please wait`; the completed list is
+drawn once the server finishes the response. Double-click a channel to join it,
+or press `Cancel` to close the list without choosing a channel.
 
 ## Messages
 

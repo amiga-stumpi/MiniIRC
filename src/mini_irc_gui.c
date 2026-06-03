@@ -1774,8 +1774,12 @@ static void draw_channel_list_window(void)
     if (g_gui_font)
         SetFont(win->RPort, g_gui_font);
     Move(win->RPort, MINI_IRC_LIST_X, 18);
-    Text(win->RPort, (STRPTR)(g_channel_list_complete ? "Channels" : "Channels - loading"),
-         g_channel_list_complete ? 8 : 18);
+    if (!g_channel_list_complete) {
+        Text(win->RPort, (STRPTR)"Retrieving channel list... please wait", 38);
+        draw_button_window(win, 176, 164, 70, 14, "Cancel");
+        return;
+    }
+    Text(win->RPort, (STRPTR)"Channels", 8);
     draw_field_box_window(win, MINI_IRC_LIST_X, MINI_IRC_LIST_Y,
                           MINI_IRC_LIST_W,
                           (WORD)(MINI_IRC_LIST_VISIBLE * MINI_IRC_LIST_ROW_H + 4));
@@ -2069,7 +2073,6 @@ static void route_line_to_tab(const char *line)
 
     if (cmd[0] == '3' && cmd[1] == '2' && cmd[2] == '2') {
         parse_list_reply(target);
-        draw_channel_list_window();
         return;
     }
 
