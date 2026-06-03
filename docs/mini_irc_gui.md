@@ -56,8 +56,9 @@ area only shows the currently selected tab, and the active tab is highlighted.
 When a channel has more users than visible rows, the user list shows `Up` and
 `Down` buttons for scrolling. After the NAMES list finishes, MiniIRC sends
 WHOIS requests for the visible channel users and uses reply `317` to mark users
-idle for at least five minutes. Idle users are drawn in yellow when the current
-screen depth provides a yellow pen.
+idle for at least five minutes. WHOIS data for the active tab is refreshed every
+120 seconds. Idle users are drawn in yellow when the current screen depth
+provides a yellow pen.
 
 Join channels with the `Join` field and button. `#` is added automatically when
 omitted. Use the `List` button to request the server channel list. The channel

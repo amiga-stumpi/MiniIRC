@@ -37,6 +37,7 @@
 #define MINI_IRC_MAX_ADDRS 8
 #define MINI_IRC_MAX_USERS 48
 #define MINI_IRC_IDLE_THRESHOLD_SECONDS 300UL
+#define MINI_IRC_WHOIS_INTERVAL_TICKS 6000UL
 #define MINI_IRC_LIST_MAX_CHANNELS 96
 #define MINI_IRC_LIST_VISIBLE 13
 #define MINI_IRC_LIST_ROW_H 10
@@ -189,6 +190,7 @@ static int g_addr_count;
 static char g_last_user_click_nick[MINI_IRC_NICK_SIZE];
 static ULONG g_last_user_click_seconds;
 static ULONG g_last_user_click_micros;
+static ULONG g_whois_interval_ticks;
 static int g_user_scroll_top;
 static WORD g_user_up_x;
 static WORD g_user_up_y;
@@ -3686,6 +3688,20 @@ static void leave_active_channel(void)
     status_text(channel[0] == '#' ? "Channel left" : "Chat closed");
 }
 
+
+static void service_whois_interval(void)
+{
+    if (!g_gui.connected || g_active_tab <= 0 || g_active_tab >= g_tab_count) {
+        g_whois_interval_ticks = 0;
+        return;
+    }
+    ++g_whois_interval_ticks;
+    if (g_whois_interval_ticks < MINI_IRC_WHOIS_INTERVAL_TICKS)
+        return;
+    g_whois_interval_ticks = 0;
+    request_whois_for_tab(g_active_tab);
+}
+
 static void handle_menu(UWORD code)
 {
     UWORD menu = MENUNUM(code);
@@ -4000,6 +4016,7 @@ int main(int argc, char **argv)
             }
         }
         poll_socket();
+        service_whois_interval();
         Delay(1);
     }
 
