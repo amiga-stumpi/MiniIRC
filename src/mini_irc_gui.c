@@ -1409,12 +1409,51 @@ static void draw_main_buttons(void)
                        g_send_gadget.Width, g_send_gadget.Height, "Send");
 }
 
+static int output_wrap_count(const char *line, int max_chars)
+{
+    int len;
+
+    if (max_chars <= 0)
+        return 0;
+    len = text_len(line);
+    if (len <= 0)
+        return 1;
+    return (len + max_chars - 1) / max_chars;
+}
+
+static void copy_output_wrap_segment(char *dst, int dst_size,
+                                     const char *line, int max_chars, int segment)
+{
+    int start;
+    int i;
+
+    if (!dst || dst_size <= 0)
+        return;
+    if (!line)
+        line = "";
+    if (max_chars <= 0) {
+        dst[0] = 0;
+        return;
+    }
+    start = segment * max_chars;
+    i = 0;
+    while (line[start + i] && i < max_chars && i < dst_size - 1) {
+        dst[i] = line[start + i];
+        ++i;
+    }
+    dst[i] = 0;
+}
+
 static void draw_output(void)
 {
     int visible_rows;
-    int start;
     int line_index;
     int row;
+    int remaining_rows;
+    int lines_seen;
+    int total_wraps;
+    int skipped_wraps;
+    int wrap;
     struct MiniIrcTab *tab;
     char tmp[MINI_IRC_LINE_SIZE];
     int max_chars;
@@ -1429,20 +1468,43 @@ static void draw_output(void)
         return;
     tab = &g_tabs[g_active_tab];
     visible_rows = (g_term_h - g_char_h - 4) / g_char_h;
-    if (visible_rows > tab->line_count)
-        visible_rows = tab->line_count;
-    start = tab->next_line - visible_rows;
-    if (start < 0)
-        start += MINI_IRC_TAB_LINES;
+    if (visible_rows < 1)
+        return;
     max_chars = (g_term_w - 8) / g_char_w;
+    if (max_chars < 1)
+        return;
     if (max_chars > MINI_IRC_LINE_SIZE - 1)
         max_chars = MINI_IRC_LINE_SIZE - 1;
-    for (row = 0; row < visible_rows; ++row) {
-        line_index = (start + row) % MINI_IRC_TAB_LINES;
-        copy_text(tmp, max_chars + 1, tab->lines[line_index]);
-        draw_text_at((WORD)(g_term_x + 4),
-                     (WORD)(g_term_y + g_char_h + g_baseline + 2 + row * g_char_h),
-                     tmp);
+
+    total_wraps = 0;
+    for (row = 0; row < tab->line_count; ++row) {
+        line_index = tab->next_line - tab->line_count + row;
+        while (line_index < 0)
+            line_index += MINI_IRC_TAB_LINES;
+        total_wraps += output_wrap_count(tab->lines[line_index % MINI_IRC_TAB_LINES], max_chars);
+    }
+    skipped_wraps = total_wraps - visible_rows;
+    if (skipped_wraps < 0)
+        skipped_wraps = 0;
+
+    lines_seen = 0;
+    remaining_rows = 0;
+    for (row = 0; row < tab->line_count && remaining_rows < visible_rows; ++row) {
+        line_index = tab->next_line - tab->line_count + row;
+        while (line_index < 0)
+            line_index += MINI_IRC_TAB_LINES;
+        line_index %= MINI_IRC_TAB_LINES;
+        for (wrap = 0; wrap < output_wrap_count(tab->lines[line_index], max_chars); ++wrap) {
+            if (lines_seen++ < skipped_wraps)
+                continue;
+            copy_output_wrap_segment(tmp, sizeof(tmp), tab->lines[line_index], max_chars, wrap);
+            draw_text_at((WORD)(g_term_x + 4),
+                         (WORD)(g_term_y + g_char_h + g_baseline + 2 + remaining_rows * g_char_h),
+                         tmp);
+            ++remaining_rows;
+            if (remaining_rows >= visible_rows)
+                break;
+        }
     }
 }
 

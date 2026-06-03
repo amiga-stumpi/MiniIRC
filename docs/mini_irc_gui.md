@@ -73,6 +73,8 @@ or press `Cancel` to close the list without choosing a channel.
 Select a channel tab, type a message in the message field, and press `Send`.
 Messages cannot be sent from the `Status` tab. Channel and private chat messages
 are displayed with a current system-time prefix, for example `[12:34] <nick> text`.
+Long messages wrap inside the active chat output pane instead of disappearing
+behind the user list.
 
 The connect requester has a Nick field. While connected, type `/nick newname`
 in the message field to send the normal IRC `NICK` command. MiniIRC updates the
