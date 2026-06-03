@@ -131,6 +131,7 @@ struct MiniIrcTab
     int names_receiving;
     int next_line;
     int line_count;
+    UBYTE unread;
 };
 
 struct MiniIrcAddr
@@ -1048,6 +1049,12 @@ static void tab_append(int idx, const char *line)
         ++tab->line_count;
 }
 
+static void tab_mark_unread(int idx)
+{
+    if (idx > 0 && idx < g_tab_count && idx != g_active_tab)
+        g_tabs[idx].unread = 1;
+}
+
 static int tab_find(const char *name)
 {
     int i;
@@ -1074,6 +1081,7 @@ static int tab_add(const char *name)
     g_tabs[idx].line_count = 0;
     g_tabs[idx].user_count = 0;
     g_tabs[idx].names_receiving = 0;
+    g_tabs[idx].unread = 0;
     return idx;
 }
 
@@ -1259,6 +1267,7 @@ static void draw_channel_list(void)
             break;
         SetAPen(g_win->RPort, 1);
         if (i == g_active_tab) {
+            g_tabs[i].unread = 0;
             Move(g_win->RPort, (WORD)(g_chan_x + 2), (WORD)(y - g_baseline - 2));
             Draw(g_win->RPort, (WORD)(g_chan_x + g_chan_w - 3), (WORD)(y - g_baseline - 2));
             Draw(g_win->RPort, (WORD)(g_chan_x + g_chan_w - 3), (WORD)(y + 3));
@@ -1268,6 +1277,8 @@ static void draw_channel_list(void)
             copy_text(tmp, max_chars + 1, g_tabs[i].name);
             Move(g_win->RPort, (WORD)(g_chan_x + 14), y);
         } else {
+            if (g_tabs[i].unread)
+                SetAPen(g_win->RPort, 3);
             max_chars = (g_chan_w - 8) / g_char_w;
             if (max_chars > MINI_IRC_CHAN_SIZE - 1)
                 max_chars = MINI_IRC_CHAN_SIZE - 1;
@@ -2318,6 +2329,10 @@ static void route_line_to_tab(const char *line)
         tab_append(idx, out);
         if (idx == g_active_tab)
             draw_output();
+        else {
+            tab_mark_unread(idx);
+            draw_channel_list();
+        }
         return;
     }
 
@@ -3897,6 +3912,7 @@ static void handle_mouse_click(WORD mx, WORD my, ULONG seconds, ULONG micros)
     row = (my - g_list_top) / g_char_h;
     if (row >= 0 && row < g_tab_count) {
         g_active_tab = row;
+        g_tabs[row].unread = 0;
         g_user_scroll_top = 0;
         draw_channel_list();
         draw_user_list();
