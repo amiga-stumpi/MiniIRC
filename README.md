@@ -92,7 +92,7 @@ filled from IRC NAMES replies and updated for basic JOIN/PART/QUIT/MODE events.
 Users are sorted alphabetically, with OP and HalfOP users kept at the top and
 drawn in green. If there are more users than visible rows, `Up` and `Down`
 buttons scroll the user list. MiniIRC refreshes WHOIS idle information in small
-batches for visible users on the active tab every 120 seconds. Normal users idle for at least
+rotating batches on the active tab every 120 seconds. Normal users idle for at least
 five minutes are drawn in yellow
 when the active screen depth has a yellow pen available.
 

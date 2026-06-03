@@ -130,6 +130,7 @@ struct MiniIrcTab
     UBYTE user_modes[MINI_IRC_MAX_USERS];
     ULONG idle_seconds[MINI_IRC_MAX_USERS];
     UBYTE idle_known[MINI_IRC_MAX_USERS];
+    int whois_next;
     int user_count;
     int names_receiving;
     int next_line;
@@ -1113,6 +1114,7 @@ static int tab_add(const char *name)
     g_tabs[idx].topic[0] = 0;
     g_tabs[idx].next_line = 0;
     g_tabs[idx].line_count = 0;
+    g_tabs[idx].whois_next = 0;
     g_tabs[idx].user_count = 0;
     g_tabs[idx].names_receiving = 0;
     g_tabs[idx].unread = 0;
@@ -1243,6 +1245,8 @@ static void tab_user_add(int tab_idx, const char *nick)
         ++tab->user_count;
         tab_user_sort(tab);
     }
+    if (tab->whois_next >= tab->user_count)
+        tab->whois_next = 0;
 }
 
 static void tab_user_set_mode(int tab_idx, const char *nick, UBYTE mode_bit, int enabled)
@@ -1283,6 +1287,8 @@ static void tab_user_remove(int tab_idx, const char *nick)
                 ++i;
             }
             --tab->user_count;
+            if (tab->whois_next >= tab->user_count)
+                tab->whois_next = 0;
             return;
         }
     }
@@ -1300,6 +1306,7 @@ static void tab_users_clear(int tab_idx)
 {
     if (tab_idx < 0 || tab_idx >= g_tab_count)
         return;
+    g_tabs[tab_idx].whois_next = 0;
     g_tabs[tab_idx].user_count = 0;
     memset(g_tabs[tab_idx].user_modes, 0, sizeof(g_tabs[tab_idx].user_modes));
     memset(g_tabs[tab_idx].idle_seconds, 0, sizeof(g_tabs[tab_idx].idle_seconds));
@@ -1346,9 +1353,8 @@ static int send_whois_for_nick(const char *nick)
 static void request_whois_for_tab(int tab_idx)
 {
     int i;
-    int start;
+    int idx;
     int sent;
-    int rows;
     struct MiniIrcTab *tab;
 
     if (tab_idx < 0 || tab_idx >= g_tab_count || !g_gui.connected)
@@ -1356,19 +1362,16 @@ static void request_whois_for_tab(int tab_idx)
     tab = &g_tabs[tab_idx];
     if (tab->user_count <= 0)
         return;
-    rows = user_visible_rows();
-    start = (tab_idx == g_active_tab) ? g_user_scroll_top : 0;
-    if (start < 0)
-        start = 0;
-    if (start >= tab->user_count)
-        start = 0;
+    if (tab->whois_next < 0 || tab->whois_next >= tab->user_count)
+        tab->whois_next = 0;
     sent = 0;
-    for (i = start; i < tab->user_count && i < start + rows; ++i) {
-        if (send_whois_for_nick(tab->users[i]))
+    for (i = 0; i < tab->user_count && sent < MINI_IRC_WHOIS_MAX_PER_BATCH; ++i) {
+        idx = (tab->whois_next + i) % tab->user_count;
+        if (send_whois_for_nick(tab->users[idx]))
             ++sent;
-        if (sent >= MINI_IRC_WHOIS_MAX_PER_BATCH)
-            break;
     }
+    if (sent > 0)
+        tab->whois_next = (tab->whois_next + sent) % tab->user_count;
 }
 
 static void open_private_chat_tab(const char *nick)
