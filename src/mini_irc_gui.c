@@ -1354,7 +1354,7 @@ static void request_whois_for_tab(int tab_idx)
 {
     int i;
     int idx;
-    int sent;
+    int batch;
     struct MiniIrcTab *tab;
 
     if (tab_idx < 0 || tab_idx >= g_tab_count || !g_gui.connected)
@@ -1364,14 +1364,14 @@ static void request_whois_for_tab(int tab_idx)
         return;
     if (tab->whois_next < 0 || tab->whois_next >= tab->user_count)
         tab->whois_next = 0;
-    sent = 0;
-    for (i = 0; i < tab->user_count && sent < MINI_IRC_WHOIS_MAX_PER_BATCH; ++i) {
+    batch = MINI_IRC_WHOIS_MAX_PER_BATCH;
+    if (batch > tab->user_count)
+        batch = tab->user_count;
+    for (i = 0; i < batch; ++i) {
         idx = (tab->whois_next + i) % tab->user_count;
-        if (send_whois_for_nick(tab->users[idx]))
-            ++sent;
+        send_whois_for_nick(tab->users[idx]);
     }
-    if (sent > 0)
-        tab->whois_next = (tab->whois_next + sent) % tab->user_count;
+    tab->whois_next = (tab->whois_next + batch) % tab->user_count;
 }
 
 static void open_private_chat_tab(const char *nick)
