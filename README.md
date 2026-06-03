@@ -83,7 +83,9 @@ a channel on the left changes the active conversation. The active channel row
 shows a Leave button for sending PART and closing that tab. The user list is
 filled from IRC NAMES replies and updated for basic JOIN/PART/QUIT events. If
 there are more users than visible rows, `Up` and `Down` buttons scroll the user
-list.
+list. MiniIRC requests WHOIS idle information after the NAMES list is complete
+and draws users idle for at least five minutes in yellow when the active screen
+depth has a yellow pen available.
 
 ## Address Book
 

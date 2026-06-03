@@ -36,6 +36,7 @@
 #define MINI_IRC_TAB_LINES 48
 #define MINI_IRC_MAX_ADDRS 8
 #define MINI_IRC_MAX_USERS 48
+#define MINI_IRC_IDLE_THRESHOLD_SECONDS 300UL
 #define MINI_IRC_LIST_MAX_CHANNELS 96
 #define MINI_IRC_LIST_VISIBLE 13
 #define MINI_IRC_LIST_ROW_H 10
@@ -123,6 +124,8 @@ struct MiniIrcTab
     char name[MINI_IRC_CHAN_SIZE];
     char lines[MINI_IRC_TAB_LINES][MINI_IRC_LINE_SIZE];
     char users[MINI_IRC_MAX_USERS][MINI_IRC_NICK_SIZE];
+    ULONG idle_seconds[MINI_IRC_MAX_USERS];
+    UBYTE idle_known[MINI_IRC_MAX_USERS];
     int user_count;
     int names_receiving;
     int next_line;
@@ -541,6 +544,27 @@ static void trim_text(char *s)
             s[len - 1] == '\r' || s[len - 1] == '\n')) {
         s[--len] = 0;
     }
+}
+
+static int parse_ulong_token(const char **p, ULONG *out)
+{
+    ULONG value = 0;
+    int digits = 0;
+    const char *s;
+
+    if (!p || !*p || !out)
+        return 0;
+    s = skip_spaces(*p);
+    while (*s >= '0' && *s <= '9') {
+        value = value * 10UL + (ULONG)(*s - '0');
+        ++digits;
+        ++s;
+    }
+    if (digits == 0)
+        return 0;
+    *out = value;
+    *p = s;
+    return 1;
 }
 
 static int parse_port(const char *text, UWORD *out_port)
@@ -1073,8 +1097,12 @@ static void tab_user_add(int tab_idx, const char *nick)
         if (text_equal_ci(tab->users[i], clean))
             return;
     }
-    if (tab->user_count < MINI_IRC_MAX_USERS)
-        copy_text(tab->users[tab->user_count++], MINI_IRC_NICK_SIZE, clean);
+    if (tab->user_count < MINI_IRC_MAX_USERS) {
+        copy_text(tab->users[tab->user_count], MINI_IRC_NICK_SIZE, clean);
+        tab->idle_seconds[tab->user_count] = 0;
+        tab->idle_known[tab->user_count] = 0;
+        ++tab->user_count;
+    }
 }
 
 static void tab_user_remove(int tab_idx, const char *nick)
@@ -1089,6 +1117,8 @@ static void tab_user_remove(int tab_idx, const char *nick)
         if (text_equal_ci(tab->users[i], nick)) {
             while (i + 1 < tab->user_count) {
                 copy_text(tab->users[i], MINI_IRC_NICK_SIZE, tab->users[i + 1]);
+                tab->idle_seconds[i] = tab->idle_seconds[i + 1];
+                tab->idle_known[i] = tab->idle_known[i + 1];
                 ++i;
             }
             --tab->user_count;
@@ -1110,6 +1140,57 @@ static void tab_users_clear(int tab_idx)
     if (tab_idx < 0 || tab_idx >= g_tab_count)
         return;
     g_tabs[tab_idx].user_count = 0;
+    memset(g_tabs[tab_idx].idle_seconds, 0, sizeof(g_tabs[tab_idx].idle_seconds));
+    memset(g_tabs[tab_idx].idle_known, 0, sizeof(g_tabs[tab_idx].idle_known));
+}
+
+
+static void tab_user_set_idle(const char *nick, ULONG idle_seconds)
+{
+    int tab_idx;
+    int i;
+    int changed = 0;
+    struct MiniIrcTab *tab;
+
+    if (!nick || !nick[0])
+        return;
+    for (tab_idx = 0; tab_idx < g_tab_count; ++tab_idx) {
+        tab = &g_tabs[tab_idx];
+        for (i = 0; i < tab->user_count; ++i) {
+            if (text_equal_ci(tab->users[i], nick)) {
+                tab->idle_seconds[i] = idle_seconds;
+                tab->idle_known[i] = 1;
+                changed = 1;
+            }
+        }
+    }
+    if (changed)
+        draw_user_list();
+}
+
+static int send_whois_for_nick(const char *nick)
+{
+    int pos = 0;
+
+    if (!g_gui.connected || !nick || !nick[0])
+        return 0;
+    g_send_buf[0] = 0;
+    if (!append_text(g_send_buf, &pos, sizeof(g_send_buf), "WHOIS ") ||
+        !append_text(g_send_buf, &pos, sizeof(g_send_buf), nick))
+        return 0;
+    return mini_irc_session_send_line(&g_gui.session, g_send_buf);
+}
+
+static void request_whois_for_tab(int tab_idx)
+{
+    int i;
+    struct MiniIrcTab *tab;
+
+    if (tab_idx < 0 || tab_idx >= g_tab_count || !g_gui.connected)
+        return;
+    tab = &g_tabs[tab_idx];
+    for (i = 0; i < tab->user_count; ++i)
+        send_whois_for_nick(tab->users[i]);
 }
 
 static void open_private_chat_tab(const char *nick)
@@ -1264,7 +1345,15 @@ static void draw_user_list(void)
         if (y > g_user_up_y - 3)
             break;
         copy_text(tmp, max_chars + 1, tab->users[idx]);
-        draw_text_at((WORD)(g_user_x + 4), y, tmp);
+        if (tab->idle_known[idx] &&
+            tab->idle_seconds[idx] >= MINI_IRC_IDLE_THRESHOLD_SECONDS) {
+            SetAPen(g_win->RPort, (g_screen_depth >= 3) ? 6 : 3);
+            Move(g_win->RPort, (WORD)(g_user_x + 4), y);
+            Text(g_win->RPort, (STRPTR)tmp, text_len(tmp));
+            SetAPen(g_win->RPort, 1);
+        } else {
+            draw_text_at((WORD)(g_user_x + 4), y, tmp);
+        }
     }
     if (tab->user_count > rows) {
         draw_button_window(g_win, g_user_up_x, g_user_up_y,
@@ -2085,8 +2174,29 @@ static void finish_names_reply(const char *target)
     if (!parse_target_token(p, chan, sizeof(chan)))
         return;
     idx = tab_find(chan);
-    if (idx >= 0)
+    if (idx >= 0) {
         g_tabs[idx].names_receiving = 0;
+        request_whois_for_tab(idx);
+    }
+}
+
+static void parse_whois_idle_reply(const char *target)
+{
+    const char *p;
+    char nick[MINI_IRC_NICK_SIZE];
+    ULONG idle;
+
+    p = skip_spaces(target);
+    while (*p && *p != ' ')
+        ++p;
+    p = skip_spaces(p);
+    if (!parse_target_token(p, nick, sizeof(nick)))
+        return;
+    while (*p && *p != ' ')
+        ++p;
+    if (!parse_ulong_token(&p, &idle))
+        return;
+    tab_user_set_idle(nick, idle);
 }
 
 static void route_line_to_tab(const char *line)
@@ -2123,6 +2233,22 @@ static void route_line_to_tab(const char *line)
     if (*p)
         ++p;
     target = skip_spaces(p);
+
+    if (cmd[0] == '3' && cmd[1] == '1' && cmd[2] == '7') {
+        parse_whois_idle_reply(target);
+        return;
+    }
+
+    if ((cmd[0] == '3' && cmd[1] == '0' && cmd[2] == '1') ||
+        (cmd[0] == '3' && cmd[1] == '1' && cmd[2] == '1') ||
+        (cmd[0] == '3' && cmd[1] == '1' && cmd[2] == '2') ||
+        (cmd[0] == '3' && cmd[1] == '1' && cmd[2] == '3') ||
+        (cmd[0] == '3' && cmd[1] == '1' && cmd[2] == '8') ||
+        (cmd[0] == '3' && cmd[1] == '1' && cmd[2] == '9') ||
+        (cmd[0] == '3' && cmd[1] == '3' && cmd[2] == '0') ||
+        (cmd[0] == '6' && cmd[1] == '7' && cmd[2] == '1')) {
+        return;
+    }
 
     if (cmd[0] == '3' && cmd[1] == '2' && cmd[2] == '2') {
         parse_list_reply(target);

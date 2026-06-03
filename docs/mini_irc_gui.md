@@ -54,7 +54,10 @@ When joining a channel, MiniIRC creates a tab named after that channel and makes
 it active. Incoming channel messages are stored in their channel tab. The output
 area only shows the currently selected tab, and the active tab is highlighted.
 When a channel has more users than visible rows, the user list shows `Up` and
-`Down` buttons for scrolling.
+`Down` buttons for scrolling. After the NAMES list finishes, MiniIRC sends
+WHOIS requests for the visible channel users and uses reply `317` to mark users
+idle for at least five minutes. Idle users are drawn in yellow when the current
+screen depth provides a yellow pen.
 
 Join channels with the `Join` field and button. `#` is added automatically when
 omitted. Use the `List` button to request the server channel list. The channel
