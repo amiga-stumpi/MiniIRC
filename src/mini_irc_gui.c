@@ -125,6 +125,7 @@ struct MiniIrcTab
     char name[MINI_IRC_CHAN_SIZE];
     char lines[MINI_IRC_TAB_LINES][MINI_IRC_LINE_SIZE];
     char users[MINI_IRC_MAX_USERS][MINI_IRC_NICK_SIZE];
+    UBYTE user_modes[MINI_IRC_MAX_USERS];
     ULONG idle_seconds[MINI_IRC_MAX_USERS];
     UBYTE idle_known[MINI_IRC_MAX_USERS];
     int user_count;
@@ -496,6 +497,13 @@ static int append_chat_prefix(char *dst, int *pos, int max_len, const char *nick
            append_text(dst, pos, max_len, "> ");
 }
 
+static char lower_ascii(char c)
+{
+    if (c >= 'A' && c <= 'Z')
+        return (char)(c + 32);
+    return c;
+}
+
 static int text_equal_ci(const char *a, const char *b)
 {
     char ca;
@@ -504,18 +512,40 @@ static int text_equal_ci(const char *a, const char *b)
     if (!a || !b)
         return 0;
     while (*a && *b) {
-        ca = *a;
-        cb = *b;
-        if (ca >= 'A' && ca <= 'Z')
-            ca = (char)(ca + 32);
-        if (cb >= 'A' && cb <= 'Z')
-            cb = (char)(cb + 32);
+        ca = lower_ascii(*a);
+        cb = lower_ascii(*b);
         if (ca != cb)
             return 0;
         ++a;
         ++b;
     }
     return *a == 0 && *b == 0;
+}
+
+static int text_compare_ci(const char *a, const char *b)
+{
+    char ca;
+    char cb;
+
+    if (!a)
+        a = "";
+    if (!b)
+        b = "";
+    while (*a && *b) {
+        ca = lower_ascii(*a);
+        cb = lower_ascii(*b);
+        if (ca < cb)
+            return -1;
+        if (ca > cb)
+            return 1;
+        ++a;
+        ++b;
+    }
+    if (*a)
+        return 1;
+    if (*b)
+        return -1;
+    return 0;
 }
 
 static char upper_ascii(char c)
@@ -1085,18 +1115,95 @@ static int tab_add(const char *name)
     return idx;
 }
 
+static UBYTE nick_mode_from_prefix(const char **nick)
+{
+    UBYTE mode = 0;
+
+    while (nick && *nick && (**nick == '@' || **nick == '+' || **nick == '%' ||
+           **nick == '&' || **nick == '~')) {
+        if (**nick == '@' || **nick == '&' || **nick == '~')
+            mode |= 2;
+        else if (**nick == '%')
+            mode |= 1;
+        ++(*nick);
+    }
+    return mode;
+}
+
+static void tab_user_swap(struct MiniIrcTab *tab, int a, int b)
+{
+    char nick_tmp[MINI_IRC_NICK_SIZE];
+    ULONG idle_tmp;
+    UBYTE known_tmp;
+    UBYTE mode_tmp;
+
+    copy_text(nick_tmp, sizeof(nick_tmp), tab->users[a]);
+    copy_text(tab->users[a], MINI_IRC_NICK_SIZE, tab->users[b]);
+    copy_text(tab->users[b], MINI_IRC_NICK_SIZE, nick_tmp);
+    mode_tmp = tab->user_modes[a];
+    tab->user_modes[a] = tab->user_modes[b];
+    tab->user_modes[b] = mode_tmp;
+    idle_tmp = tab->idle_seconds[a];
+    tab->idle_seconds[a] = tab->idle_seconds[b];
+    tab->idle_seconds[b] = idle_tmp;
+    known_tmp = tab->idle_known[a];
+    tab->idle_known[a] = tab->idle_known[b];
+    tab->idle_known[b] = known_tmp;
+}
+
+static UBYTE tab_user_sort_rank(UBYTE mode)
+{
+    if (mode & 2)
+        return 2;
+    if (mode & 1)
+        return 1;
+    return 0;
+}
+
+static int tab_user_should_follow(struct MiniIrcTab *tab, int a, int b)
+{
+    UBYTE rank_a;
+    UBYTE rank_b;
+
+    rank_a = tab_user_sort_rank(tab->user_modes[a]);
+    rank_b = tab_user_sort_rank(tab->user_modes[b]);
+    if (rank_a < rank_b)
+        return 1;
+    if (rank_a > rank_b)
+        return 0;
+    return text_compare_ci(tab->users[a], tab->users[b]) > 0;
+}
+
+static void tab_user_sort(struct MiniIrcTab *tab)
+{
+    int i;
+    int swapped;
+
+    if (!tab)
+        return;
+    do {
+        swapped = 0;
+        for (i = 0; i + 1 < tab->user_count; ++i) {
+            if (tab_user_should_follow(tab, i, i + 1)) {
+                tab_user_swap(tab, i, i + 1);
+                swapped = 1;
+            }
+        }
+    } while (swapped);
+}
+
 static void tab_user_add(int tab_idx, const char *nick)
 {
     struct MiniIrcTab *tab;
     char clean[MINI_IRC_NICK_SIZE];
+    UBYTE mode;
     int i;
     int j;
 
     if (tab_idx < 0 || tab_idx >= g_tab_count || !nick || !nick[0])
         return;
+    mode = nick_mode_from_prefix(&nick);
     j = 0;
-    while (*nick == '@' || *nick == '+' || *nick == '%' || *nick == '&' || *nick == '~')
-        ++nick;
     while (nick[j] && nick[j] != ' ' && nick[j] != '\r' && nick[j] != '\n' &&
            j < (int)sizeof(clean) - 1) {
         clean[j] = nick[j];
@@ -1107,14 +1214,41 @@ static void tab_user_add(int tab_idx, const char *nick)
         return;
     tab = &g_tabs[tab_idx];
     for (i = 0; i < tab->user_count; ++i) {
-        if (text_equal_ci(tab->users[i], clean))
+        if (text_equal_ci(tab->users[i], clean)) {
+            if (mode > tab->user_modes[i]) {
+                tab->user_modes[i] = mode;
+                tab_user_sort(tab);
+            }
             return;
+        }
     }
     if (tab->user_count < MINI_IRC_MAX_USERS) {
         copy_text(tab->users[tab->user_count], MINI_IRC_NICK_SIZE, clean);
+        tab->user_modes[tab->user_count] = mode;
         tab->idle_seconds[tab->user_count] = 0;
         tab->idle_known[tab->user_count] = 0;
         ++tab->user_count;
+        tab_user_sort(tab);
+    }
+}
+
+static void tab_user_set_mode(int tab_idx, const char *nick, UBYTE mode_bit, int enabled)
+{
+    struct MiniIrcTab *tab;
+    int i;
+
+    if (tab_idx < 0 || tab_idx >= g_tab_count || !nick || !nick[0] || !mode_bit)
+        return;
+    tab = &g_tabs[tab_idx];
+    for (i = 0; i < tab->user_count; ++i) {
+        if (text_equal_ci(tab->users[i], nick)) {
+            if (enabled)
+                tab->user_modes[i] |= mode_bit;
+            else
+                tab->user_modes[i] &= (UBYTE)~mode_bit;
+            tab_user_sort(tab);
+            return;
+        }
     }
 }
 
@@ -1130,6 +1264,7 @@ static void tab_user_remove(int tab_idx, const char *nick)
         if (text_equal_ci(tab->users[i], nick)) {
             while (i + 1 < tab->user_count) {
                 copy_text(tab->users[i], MINI_IRC_NICK_SIZE, tab->users[i + 1]);
+                tab->user_modes[i] = tab->user_modes[i + 1];
                 tab->idle_seconds[i] = tab->idle_seconds[i + 1];
                 tab->idle_known[i] = tab->idle_known[i + 1];
                 ++i;
@@ -1153,6 +1288,7 @@ static void tab_users_clear(int tab_idx)
     if (tab_idx < 0 || tab_idx >= g_tab_count)
         return;
     g_tabs[tab_idx].user_count = 0;
+    memset(g_tabs[tab_idx].user_modes, 0, sizeof(g_tabs[tab_idx].user_modes));
     memset(g_tabs[tab_idx].idle_seconds, 0, sizeof(g_tabs[tab_idx].idle_seconds));
     memset(g_tabs[tab_idx].idle_known, 0, sizeof(g_tabs[tab_idx].idle_known));
 }
@@ -1361,7 +1497,12 @@ static void draw_user_list(void)
         if (y > g_user_up_y - 3)
             break;
         copy_text(tmp, max_chars + 1, tab->users[idx]);
-        if (tab->idle_known[idx] &&
+        if (tab_user_sort_rank(tab->user_modes[idx]) >= 1) {
+            SetAPen(g_win->RPort, 3);
+            Move(g_win->RPort, (WORD)(g_user_x + 4), y);
+            Text(g_win->RPort, (STRPTR)tmp, text_len(tmp));
+            SetAPen(g_win->RPort, 1);
+        } else if (tab->idle_known[idx] &&
             tab->idle_seconds[idx] >= MINI_IRC_IDLE_THRESHOLD_SECONDS) {
             SetAPen(g_win->RPort, (g_screen_depth >= 3) ? 6 : 3);
             Move(g_win->RPort, (WORD)(g_user_x + 4), y);
@@ -2277,6 +2418,52 @@ static void parse_whois_idle_reply(const char *target)
     tab_user_set_idle(nick, idle);
 }
 
+static void parse_channel_mode_reply(const char *target)
+{
+    const char *p;
+    const char *modes;
+    char chan[MINI_IRC_CHAN_SIZE];
+    char nick[MINI_IRC_NICK_SIZE];
+    int tab_idx;
+    int sign;
+    UBYTE bit;
+    int i;
+
+    p = skip_spaces(target);
+    if (!parse_target_token(p, chan, sizeof(chan)) || chan[0] != '#')
+        return;
+    tab_idx = tab_find(chan);
+    if (tab_idx < 0)
+        return;
+    while (*p && *p != ' ')
+        ++p;
+    p = skip_spaces(p);
+    modes = p;
+    while (*p && *p != ' ')
+        ++p;
+    p = skip_spaces(p);
+    sign = 1;
+    while (*modes && *modes != ' ') {
+        if (*modes == '+') {
+            sign = 1;
+        } else if (*modes == '-') {
+            sign = 0;
+        } else if (*modes == 'o' || *modes == 'h') {
+            bit = (*modes == 'o') ? 2 : 1;
+            if (parse_target_token(p, nick, sizeof(nick))) {
+                tab_user_set_mode(tab_idx, nick, bit, sign);
+                i = 0;
+                while (p[i] && p[i] != ' ')
+                    ++i;
+                p += i;
+                p = skip_spaces(p);
+            }
+        }
+        ++modes;
+    }
+    draw_user_list();
+}
+
 static void route_line_to_tab(const char *line)
 {
     const char *p = line;
@@ -2349,6 +2536,11 @@ static void route_line_to_tab(const char *line)
     if (cmd[0] == '3' && cmd[1] == '6' && cmd[2] == '6') {
         finish_names_reply(target);
         draw_user_list();
+        return;
+    }
+
+    if (cmd[0] == 'M' && cmd[1] == 'O' && cmd[2] == 'D' && cmd[3] == 'E') {
+        parse_channel_mode_reply(target);
         return;
     }
 
