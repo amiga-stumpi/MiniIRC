@@ -58,7 +58,7 @@ with a horizontal separator below it. Inactive channels with new messages are
 drawn in green until they are selected.
 When a channel has more users than visible rows, the user list shows `Up` and
 `Down` buttons for scrolling. MiniIRC refreshes WHOIS requests in small rotating
-batches on the active tab every 120 seconds and uses reply `317` to mark users
+batches of up to 8 users on the active tab every 30 seconds and uses reply `317` to mark users
 idle for at least five minutes. The user list is sorted alphabetically, with OP
 and HalfOP users kept at the top and drawn in green. MiniIRC also tracks basic
 `MODE +o/-o/+h/-h` changes for that display. Normal idle users are drawn in
